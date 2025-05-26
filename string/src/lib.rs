@@ -12,12 +12,49 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
+//! Tiny string
+//!
+//! A string that can store a small amount of bytes on the stack.
+//!
+//! This struct provides a string-like API, but performs SSO (Small String Optimization)
+//! This means that a `TinyString<N>` stores up to N bytes on the stack.
+//! If the string grows bigger than that, it moves the contents to the heap.
+//!
+//! # Example
+//! ```
+//! use tiny_str::TinyString;
+//!
+//! let mut s = TinyString::<10>::new();
+//!
+//! for (i, c) in (b'0'..=b'9').enumerate() {
+//!     s.push(c as char);
+//!     assert_eq!(s.len(), i + 1);
+//! }
+//!
+//! // Up to this point, no heap allocations are needed.
+//! // The string is stored on the stack.
+//!
+//! s.push_str("abc"); // This moves the string to the heap
+//!
+//! assert_eq!(&s[..], "0123456789abc")
+//! ```
+//!
+//! # Memory layout
+//! TinyString is based on [TinyVec], just like [std::string::String] if based
+//! on [std::vec::Vec].
+//!
+//! You can read the [tiny_vec] crate documentation to learn about the internal
+//! representation of the data.
+
 use core::ops::{Deref, DerefMut};
 use core::str::Utf8Error;
 
 use tiny_vec::TinyVec;
 
-pub struct TinyString<const N: usize>(TinyVec<u8, N>);
+const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
+
+/// A string that can store a small amount of bytes on the stack.
+pub struct TinyString<const N: usize = MAX_N_STACK_ELEMENTS>(TinyVec<u8, N>);
 
 impl<const N: usize> TinyString<N> {
     #[inline]

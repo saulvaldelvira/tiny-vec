@@ -8,3 +8,7 @@ authors = ["Saúl Valdelvira <saul@saulv.es>"]
 license = "GPL-3.0-only"
 readme = "../README"
 repository = "https://github.com/saulvaldelvira/tiny-vec"
+
+[features]
+default = []
+nightly-const-generics = []

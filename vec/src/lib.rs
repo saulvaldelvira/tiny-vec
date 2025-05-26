@@ -12,6 +12,55 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
+//! Tiny Vec
+//!
+//! A dynamic array that can store a small amount of elements on the stack.
+//!
+//! This struct provides a vec-like API, but performs small-vector optimization.
+//! This means that a `TinyVec<T, N>` stores up to N elements on the stack.
+//! If the vector grows bigger than that, it moves the contents to the heap.
+//!
+//! # Example
+//! ```
+//! use tiny_vec::TinyVec;
+//!
+//! let mut tv = TinyVec::<u8, 16>::new();
+//!
+//! for n in 0..16 {
+//!     tv.push(n);
+//! }
+//!
+//! // Up to this point, no heap allocations are needed.
+//! // All the elements are stored on the stack.
+//!
+//! tv.push(123); // This moves the vector to the heap
+//!
+//! assert_eq!(&tv[..], &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+//!                       10, 11, 12, 13, 14, 15, 123])
+//! ```
+//!
+//! # Memory layout
+//! For a TinyVec<T, N>
+//!
+//! On the stack (length <= N)
+//! - [T; N] : Data
+//! - usize  : Length
+//!
+//! On the heap (length > N)
+//! - T*    : Data
+//! - usize : Capacity
+//! - usize : Length
+//!
+//! If N is equal to `sizeof (T*, usize) / sizeof T`, the
+//! TinyVec is the same size as a regular vector \
+//! NOTE: The [n_elements_for_stack] function returns the maximun
+//! number of elements for a type, such that it doesn't waste extra
+//! space when moved to the heap
+//!
+
+#![allow(incomplete_features)]
+#![cfg_attr(feature = "nightly-const-generics", feature(generic_const_exprs))]
+
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
@@ -78,12 +127,39 @@ impl Length {
     }
 }
 
-pub struct TinyVec<T, const N: usize> {
+/// The maximun number of elements that can be stored in the stack
+/// for the vector, without incrementing it's size
+///
+/// This means, that [`n_elements_for_stack`] for T returns the max
+/// number of elements, so that when switching to a heap allocated
+/// buffer, no stack size is wasted
+///
+/// # Examples
+/// ```
+/// use tiny_vec::n_elements_for_stack;
+///
+/// assert_eq!(n_elements_for_stack::<u8>(), 16);
+/// assert_eq!(n_elements_for_stack::<u16>(), 8);
+/// assert_eq!(n_elements_for_stack::<i32>(), 4);
+/// ```
+pub const fn n_elements_for_stack<T>() -> usize {
+    mem::size_of::<RawVec<T>>() / mem::size_of::<T>()
+}
+
+/// A dynamic array that can store a small amount of elements on the stack.
+pub struct TinyVec<T,
+    #[cfg(not(feature = "nightly-const-generics"))]
+    const N: usize,
+
+    #[cfg(feature = "nightly-const-generics")]
+    const N: usize = { n_elements_for_stack::<T>() },
+> {
     inner: TinyVecInner<T, N>,
     len: Length,
 }
 
 impl<T, const N: usize> TinyVec<T, N> {
+
     fn ptr(&self) -> *const T {
         unsafe {
             if self.len.is_stack() {
@@ -122,6 +198,7 @@ impl<T, const N: usize> TinyVec<T, N> {
 }
 
 impl<T, const N: usize> TinyVec<T, N> {
+
     pub const fn new() -> Self {
         let stack = [ const { MaybeUninit::uninit() }; N ];
         Self {
