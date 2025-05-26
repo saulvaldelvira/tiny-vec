@@ -102,9 +102,13 @@ impl<const N: usize> TinyString<N> {
     /// Pushes a character into the string
     pub fn push(&mut self, c: char) {
         let len = c.len_utf8();
-        let mut buf = [0_u8; 4];
-        c.encode_utf8(&mut buf);
-        self.0.push_slice(&buf[..len]);
+        if len == 1 {
+            self.0.push(c as u8);
+        } else {
+            let mut buf = [0_u8; 4];
+            c.encode_utf8(&mut buf);
+            self.0.push_slice(&buf[..len]);
+        }
     }
 
     /// Pushes a str slice into this string
@@ -150,6 +154,21 @@ where
         let value = value.as_ref();
         let mut s = Self::with_capacity(value.len());
         s.push_str(value);
+        s
+    }
+}
+
+impl<const N: usize> FromIterator<char> for TinyString<N> {
+    fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
+        let iter = iter.into_iter();
+        let cap = match iter.size_hint() {
+            (_, Some(n)) => n,
+            (n, _) => n,
+        };
+        let mut s = TinyString::with_capacity(cap);
+        for c in iter {
+            s.push(c);
+        }
         s
     }
 }
