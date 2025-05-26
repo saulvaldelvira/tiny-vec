@@ -1,6 +1,9 @@
 use core::mem;
 use super::TinyVec;
 
+extern crate std;
+use std::prelude::rust_2024::*;
+
 macro_rules! assert_size_eq {
     ($($t:ty, $u:ty ;)*) => {
         const _: () = const {
