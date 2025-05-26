@@ -2,12 +2,12 @@
 name = "tiny-str"
 version.workspace = true
 edition.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
 
 description = "Small string optimization"
-authors = ["Saúl Valdelvira <saul@saulv.es>"]
-license = "GPL-3.0-only"
-readme = "../README"
-repository = "https://github.com/saulvaldelvira/tiny-vec"
 
 [dependencies.tiny-vec]
 path = "../vec"
