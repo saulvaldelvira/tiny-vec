@@ -1,0 +1,15 @@
+[package]
+name = "tiny-str"
+version = "0.1.0"
+edition = "2024"
+
+description = "Small string optimization"
+authors = ["Saúl Valdelvira <saul@saulv.es>"]
+license = "GPL-3.0-only"
+readme = "../README"
+repository = "https://github.com/saulvaldelvira/tiny-vec"
+
+[dependencies.tiny-vec]
+path = "../vec"
+package = "tiny-vec"
+version = ">=0.1.0"

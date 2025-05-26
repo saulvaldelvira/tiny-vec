@@ -1,0 +1,17 @@
+Tiny-Vec
+===========
+
+A dynamic array with an initial stack-based buffer, for small collections.
+
+== Documentation ==
+To build the documentation, run `cargo doc`
+Or browse it online at
+- https://docs.rs/tiny-vec
+- https://docs.rs/tiny-str
+
+====
+Copyright (C) 2025 Saúl Valdelvira
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, version 3.
