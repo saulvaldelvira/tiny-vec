@@ -1,5 +1,5 @@
 Tiny-Vec
-===========
+========
 
 A dynamic array with an initial stack-based buffer, for small collections.
 
