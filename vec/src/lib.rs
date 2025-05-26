@@ -68,7 +68,7 @@ use core::{fmt, ptr};
 use core::slice;
 
 mod raw;
-use raw::{next_cap, RawVec};
+use raw::RawVec;
 
 union TinyVecInner<T, const N: usize> {
     stack: ManuallyDrop<[MaybeUninit<T>; N]>,
@@ -109,6 +109,11 @@ impl Length {
     #[inline]
     const fn set_heap(&mut self) {
         self.0 |= 0b1;
+    }
+
+    #[inline]
+    const fn set_stack(&mut self) {
+        self.0 &= 0b0;
     }
 
     #[inline]
@@ -180,9 +185,9 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
-    unsafe fn switch(&mut self, n: usize) {
-        let cap = next_cap(self.len.get() + n);
-        let vec = RawVec::with_capacity(cap);
+    unsafe fn switch_to_heap(&mut self, n: usize) {
+        let mut vec = RawVec::new();
+        vec.expand_if_needed(0, self.len.get() + n);
         unsafe {
             let src = self.inner.as_ptr_stack();
             let dst = vec.ptr.as_ptr();
@@ -195,10 +200,32 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
         self.len.set_heap();
     }
+
+    unsafe fn switch_to_stack(&mut self) {
+        let mut rv = unsafe { self.inner.raw };
+
+        let stack = [ const { MaybeUninit::uninit() }; N ];
+
+        unsafe {
+            let src = rv.ptr.as_ptr();
+            let dst = stack.as_ptr() as *mut T;
+            ptr::copy(
+                src,
+                dst,
+                self.len.get()
+            );
+
+            rv.destroy();
+        }
+
+        self.inner.stack =  ManuallyDrop::new(stack);
+        self.len.set_stack();
+    }
 }
 
 impl<T, const N: usize> TinyVec<T, N> {
 
+    /// Creates a new [TinyVec]
     pub const fn new() -> Self {
         let stack = [ const { MaybeUninit::uninit() }; N ];
         Self {
@@ -207,6 +234,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    /// Creates a new [TinyVec] with the specified initial capacity
     pub fn with_capacity(cap: usize) -> Self {
         let mut len = Length(0);
         let inner = if cap <= N {
@@ -237,12 +265,18 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    /// Returns true if the vector is currently using stack memory.
+    ///
+    /// This means that [Self::len] <= `N`
+    #[inline]
+    pub const fn lives_on_stack(&self) -> bool { self.len.is_stack() }
+
     /// Reserves space for, at least, n elements
     pub fn reserve(&mut self, n: usize) {
         if self.len.is_stack() {
             if self.len.get() + n > N {
                 unsafe {
-                    self.switch(n);
+                    self.switch_to_heap(n);
                 }
             }
         } else {
@@ -255,6 +289,17 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// Appends an element to the back of the vector
     pub fn push(&mut self, elem: T) {
         self.reserve(1);
+        unsafe { self.push_unchecked(elem); }
+    }
+
+    /// Appends an element to the back of the vector without
+    /// checking for space.
+    ///
+    /// # Safety
+    /// The caller must ensure that there's enought capacity
+    /// for this element.
+    /// This means that [Self::len] < [Self::capacity]
+    pub unsafe fn push_unchecked(&mut self, elem: T) {
         unsafe {
             let dst = self.ptr_mut().add(self.len.get());
             dst.write(elem);
@@ -267,11 +312,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// reallocation of the buffer, returns the value.
     pub fn push_within_capacity(&mut self, val: T) -> Result<(),T> {
         if self.len.get() < self.capacity() {
-            unsafe {
-                // TODO CHECK
-                self.ptr_mut().add(self.len.get()).write(val)
-            }
-            self.len.add(1);
+            unsafe { self.push_unchecked(val); }
             Ok(())
         } else {
             Err(val)
@@ -320,17 +361,18 @@ impl<T, const N: usize> TinyVec<T, N> {
     pub fn reserve_exact(&mut self, n: usize) {
         if self.len.is_stack() {
             if self.len.get() + n > N {
-                unsafe { self.switch(n); }
+                unsafe { self.switch_to_heap(n); }
             }
         } else {
             let vec = unsafe { &mut self.inner.raw };
-            let new_cap = vec.cap.max(self.len.get() + n);
-            vec.expand(new_cap);
+            let len = self.len.get();
+            let new_cap = vec.cap.max(len + n);
+            vec.expand_if_needed_exact(len, new_cap);
         }
     }
 
     /// # Safety
-    /// Index should be < Vec::len()
+    /// Index should be < [TinyVec::len]\()
     pub unsafe fn remove_unchecked(&mut self, index: usize) -> T {
         debug_assert!(index < self.len.get(), "Index is >= than {}, this will trigger UB", self.len.get());
 
@@ -351,17 +393,77 @@ impl<T, const N: usize> TinyVec<T, N> {
         if index >= self.len.get() { return None }
         /* Safety: We've just checked the invariant. Index will always
          * be < self.len, so it's 100% safe to call this function */
-        Some( unsafe { self.remove_unchecked(index) } )
+        Some(unsafe { self.remove_unchecked(index) })
     }
 
-    #[inline]
-    pub fn shrink_to_fit(&mut self) {
-        if !self.len.is_stack() {
-            unsafe { self.inner.raw.shrink_to_fit(self.len.get()); }
+    /// Swaps the elements on index a and b
+    ///
+    /// # Panics
+    /// If either a or b are out of bounds for [0, len)
+    pub fn swap(&mut self, a: usize, b: usize) {
+        self.swap_checked(a, b).unwrap_or_else(|| {
+            panic!("Index out of bounds")
+        });
+    }
+
+    /// Swaps the elements on index a and b
+    ///
+    /// Returns [None] if either a or b are out of bounds for [0, len)
+    pub fn swap_checked(&mut self, a: usize, b: usize) -> Option<()> {
+        if a >= self.len.get() {
+            return None
+        };
+        if b >= self.len.get() {
+            return None
+        };
+        unsafe { self.swap_unchecked(a, b); }
+        Some(())
+    }
+
+    /// Swaps the elements on index a and b, without checking bounds
+    ///
+    /// # Safety
+    /// The caller must ensure that both `a` and `b` are in bounds [0, len)
+    /// For a checked version of this function, check [swap_checked](Self::swap_checked)
+    pub unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
+        unsafe {
+            let ap = self.ptr_mut().add(a);
+            let bp = self.ptr_mut().add(b);
+            let tmp = ap.read();
+            ap.write(bp.read());
+            bp.write(tmp);
         }
     }
 
-    pub fn push_slice(&mut self, s: &[T]) {
+    /// Removes the element at the given index by swaping it with the last one
+    pub fn swap_remove(&mut self, index: usize) -> Option<T> {
+        if index >= self.len.get() {
+            None
+        } else if index == self.len.get() - 1 {
+            self.pop()
+        } else {
+            unsafe { self.swap_unchecked(index, self.len.get() - 1) }
+            self.pop()
+        }
+    }
+
+    #[inline]
+    /// Shrinks the capacity of the vector to fit exactly it's length
+    pub fn shrink_to_fit(&mut self) {
+        if self.len.is_stack() { return }
+
+        if self.len.get() <= N {
+            unsafe { self.switch_to_stack(); }
+        } else {
+            unsafe { self.inner.raw.shrink_to_fit(self.len.get()); };
+        }
+    }
+
+    /// Copies all the elements of the given slice into the vector
+    pub fn push_slice(&mut self, s: &[T])
+    where
+        T: Copy
+    {
         let len = s.len();
         let src = s.as_ptr();
 
@@ -378,6 +480,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         self.len.add(len);
     }
 
+    /// Pushes all the available elements from the iterator into the vector
     pub fn extend_from<I>(&mut self, it: I)
     where
         I: IntoIterator<Item = T>,
@@ -395,7 +498,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
 
         for elem in it {
-            self.push(elem);
+            unsafe { self.push_unchecked(elem); }
         }
     }
 }
@@ -461,6 +564,21 @@ impl<T, const N: usize> From<Vec<T>> for TinyVec<T, N> {
             inner,
             len: Length::new_heap(md.len()),
         }
+    }
+}
+
+impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let cap = match iter.size_hint() {
+            (_, Some(max)) => max,
+            (n, None) => n,
+        };
+        let mut vec = Self::with_capacity(cap);
+        for elem in iter {
+            unsafe { vec.push_unchecked(elem) };
+        }
+        vec
     }
 }
 

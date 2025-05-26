@@ -57,28 +57,49 @@ const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
 pub struct TinyString<const N: usize = MAX_N_STACK_ELEMENTS>(TinyVec<u8, N>);
 
 impl<const N: usize> TinyString<N> {
+
+    /// Creates a new [TinyString]
     #[inline]
     pub const fn new() -> Self {
         Self(TinyVec::new())
     }
 
+    /// Creates a new [TinyString] with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self(TinyVec::with_capacity(cap))
 
     }
 
+    /// Creates a new [TinyString] from the given utf8 buffer.
+    ///
+    /// # Errors
+    /// If the byte buffer contains invalid uft8
     pub fn from_utf8(utf8: Vec<u8>) -> Result<Self,Utf8Error> {
         str::from_utf8(&utf8)?;
         Ok(Self(utf8.into()))
     }
 
+    /// Creates a new [TinyString] from the given utf8 buffer.
+    ///
     /// # Safety
-    /// The caller must ensure that the given buffer is valid utf8
+    /// The caller must ensure that the given contains valid utf8
     #[inline(always)]
     pub const unsafe fn from_utf8_unchecked(utf8: TinyVec<u8, N>) -> Self {
         Self(utf8)
     }
 
+    /// Returns the number of elements inside this string
+    #[inline]
+    pub const fn len(&self) -> usize { self.0.len() }
+
+    /// Returns true if the string is empty
+    #[inline]
+    pub const fn is_empty(&self) -> bool { self.0.is_empty() }
+
+    /// Returns the allocated capacity for this string
+    pub const fn capacity(&self) -> usize { self.0.capacity() }
+
+    /// Pushes a character into the string
     pub fn push(&mut self, c: char) {
         let len = c.len_utf8();
         let mut buf = [0_u8; 4];
@@ -86,15 +107,15 @@ impl<const N: usize> TinyString<N> {
         self.0.push_slice(&buf[..len]);
     }
 
+    /// Pushes a str slice into this string
     pub fn push_str(&mut self, s: &str) {
         self.0.push_slice(s.as_bytes());
     }
 
+    /// Shrinks the capacity of this string to fit exactly it's length
     pub fn shrink_to_fit(&mut self) {
         self.0.shrink_to_fit();
     }
-
-    pub const fn capacity(&self) -> usize { self.0.capacity() }
 }
 
 impl<const N: usize> Default for TinyString<N> {

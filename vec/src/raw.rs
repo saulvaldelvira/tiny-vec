@@ -11,7 +11,7 @@ pub struct RawVec<T> {
 
 /// Returns the next capacity value
 #[inline(always)]
-pub const fn next_cap(cap: usize) -> usize {
+const fn next_cap(cap: usize) -> usize {
     if cap == 0 { 1 } else { cap * 2 }
 }
 
@@ -26,12 +26,11 @@ impl<T: Sized> RawVec<T> {
     pub fn with_capacity(cap: usize) -> Self {
         let mut vec = Self::new();
         if mem::size_of::<T>() != 0 {
-            vec.expand(cap);
+            vec.resize_buffer(cap);
         }
         vec
     }
-
-    pub fn expand(&mut self, new_cap: usize) {
+    fn resize_buffer(&mut self, new_cap: usize) {
         // since we set the capacity to usize::MAX when T has size 0,
         // getting to here necessarily means the Vec is overfull.
         assert!(mem::size_of::<T>() != 0, "capacity overflow");
@@ -44,8 +43,7 @@ impl<T: Sized> RawVec<T> {
         } else {
             let old_layout = Layout::array::<T>(self.cap).unwrap();
             let ptr = self.ptr.as_ptr() as *mut u8;
-            unsafe { alloc::realloc(ptr, old_layout, new_layout.size())  }
-            /* unsafe { self.allocator.grow(NonNull::new_unchecked(ptr), old_layout, new_layout) } */
+            unsafe { alloc::realloc(ptr, old_layout, new_layout.size()) }
         };
         if new_ptr.is_null() {
             alloc::handle_alloc_error(new_layout);
@@ -54,30 +52,24 @@ impl<T: Sized> RawVec<T> {
         self.cap = new_cap;
         self.ptr = unsafe { NonNull::new_unchecked(new_ptr as *mut T) };
     }
-    #[inline(always)]
     pub fn expand_if_needed(&mut self, len: usize, n: usize) {
         if len == self.cap {
             let mut new_cap = self.cap;
             while new_cap - len < n {
                 new_cap = next_cap(new_cap);
             }
-            self.expand(new_cap);
+            self.resize_buffer(new_cap);
+        }
+    }
+    #[inline]
+    pub fn expand_if_needed_exact(&mut self, len: usize, n: usize) {
+        if len == self.cap {
+            self.resize_buffer(n);
         }
     }
     pub fn shrink_to_fit(&mut self, len: usize) {
-        let previous_layout = Layout::array::<T>(self.cap).unwrap();
-        let layout = Layout::array::<T>(len).unwrap();
-        let ptr = self.ptr.as_ptr() as *mut u8;
-
-        let ptr = unsafe { alloc::realloc(ptr, previous_layout, layout.size()) };
-        if ptr.is_null() {
-            alloc::handle_alloc_error(layout);
-        };
-
-        self.cap = len;
-        self.ptr = unsafe { NonNull::new_unchecked(ptr as *mut T) };
+        self.resize_buffer(len);
     }
-
     pub unsafe fn destroy(&mut self) {
         if self.cap != 0 && mem::size_of::<T>() != 0 {
             let layout = Layout::array::<T>(self.cap).unwrap();
