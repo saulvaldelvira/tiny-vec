@@ -13,3 +13,7 @@ description = "Small string optimization"
 path = "../vec"
 package = "tiny-vec"
 version = ">=0.1.0"
+
+[features]
+default = []
+use-specialization = ["tiny-vec/use-specialization"]

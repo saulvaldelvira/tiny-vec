@@ -58,8 +58,8 @@
 //! space when moved to the heap
 
 #![allow(incomplete_features)]
-#![cfg_attr(feature = "nightly-const-generics", feature(generic_const_exprs))]
-#![cfg_attr(feature = "specialization", feature(min_specialization))]
+#![cfg_attr(feature = "default-size", feature(generic_const_exprs))]
+#![cfg_attr(feature = "use-specialization", feature(min_specialization))]
 
 #![no_std]
 
@@ -175,10 +175,10 @@ pub const fn n_elements_for_stack<T>() -> usize {
 
 /// A dynamic array that can store a small amount of elements on the stack.
 pub struct TinyVec<T,
-    #[cfg(not(feature = "nightly-const-generics"))]
+    #[cfg(not(feature = "default-size"))]
     const N: usize,
 
-    #[cfg(feature = "nightly-const-generics")]
+    #[cfg(feature = "default-size")]
     const N: usize = { n_elements_for_stack::<T>() },
 > {
     inner: TinyVecInner<T, N>,
@@ -872,18 +872,18 @@ impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
 }
 
 impl<T: Clone, const N: usize> From<&[T]> for TinyVec<T, N> {
-    #[cfg(feature = "specialization")]
+    #[cfg(feature = "use-specialization")]
     default fn from(value: &[T]) -> Self {
         Self::from_slice(value)
     }
 
-    #[cfg(not(feature = "specialization"))]
+    #[cfg(not(feature = "use-specialization"))]
     fn from(value: &[T]) -> Self {
         Self::from_slice(value)
     }
 }
 
-#[cfg(feature = "specialization")]
+#[cfg(feature = "use-specialization")]
 impl<T: Clone + Copy, const N: usize> From<&[T]> for TinyVec<T, N> {
     fn from(value: &[T]) -> Self {
         Self::from_slice_copied(value)
@@ -891,18 +891,18 @@ impl<T: Clone + Copy, const N: usize> From<&[T]> for TinyVec<T, N> {
 }
 
 impl<T: Clone, const N: usize> From<&mut [T]> for TinyVec<T, N> {
-    #[cfg(feature = "specialization")]
+    #[cfg(feature = "use-specialization")]
     default fn from(value: &mut [T]) -> Self {
         Self::from_slice(value)
     }
 
-    #[cfg(not(feature = "specialization"))]
+    #[cfg(not(feature = "use-specialization"))]
     fn from(value: &mut [T]) -> Self {
         Self::from_slice(value)
     }
 }
 
-#[cfg(feature = "specialization")]
+#[cfg(feature = "use-specialization")]
 impl<T: Clone + Copy, const N: usize> From<&mut [T]> for TinyVec<T, N> {
     fn from(value: &mut [T]) -> Self {
         Self::from_slice_copied(value)

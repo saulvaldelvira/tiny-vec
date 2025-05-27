@@ -1,13 +1,38 @@
 Tiny-Vec
 ========
-
 A dynamic array with an initial stack-based buffer, for small collections.
+
+It aims to have a similar API to std::vec::Vec, but allowing to optimize
+small lists. It starts as a stack-based buffer, and automatically switches
+to the heap when the capacity grows over a certain number of elements.
+
+The tiny-str crate provides TinyString, which is a String backed by a
+TinyVec, just like std::string::String is built on top of std::vec::Vec.
 
 == Documentation ==
 To build the documentation, run `cargo doc`
 Or browse it online at
 - https://docs.rs/tiny-vec
 - https://docs.rs/tiny-str
+
+== Features ==
+These features are only usable on nightly compilers, that's why they are
+disabled by default.
+
+use-specialization
+    Enables specialization for trait impls
+    For example, From<&[T]> where T is Copy can be optimized as a ptr::copy.
+    We can specialize that case, while still allowing From<&[T]> for the
+    types that only implement Clone.
+
+default-size
+    Adds the option to not specify a capacity for the stack buffer, which
+    will default to the maximun capacity that fits in the RawVec's space.
+    This default size causes no memory waste when switching to the heap.
+
+== Contributing ==
+You can send patches to <saul@saulv.es>, or a pull request on the github
+mirror for this repo <https://github.com/saulvaldelvira/tiny-vec>
 
 ====
 Copyright (C) 2025 Saúl Valdelvira
