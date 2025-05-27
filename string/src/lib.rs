@@ -80,9 +80,9 @@ impl<const N: usize> TinyString<N> {
     ///
     /// # Errors
     /// If the byte buffer contains invalid uft8
-    pub fn from_utf8(utf8: Vec<u8>) -> Result<Self,Utf8Error> {
-        str::from_utf8(&utf8)?;
-        Ok(Self(utf8.into()))
+    pub fn from_utf8(utf8: TinyVec<u8, N>) -> Result<Self,Utf8Error> {
+        str::from_utf8(utf8.as_slice())?;
+        Ok(Self(utf8))
     }
 
     /// Creates a new [TinyString] from the given utf8 buffer.
@@ -225,6 +225,32 @@ impl<const N: usize> From<&str> for TinyString<N> {
         let mut s = Self::with_capacity(value.len());
         s.push_str(value);
         s
+    }
+}
+
+impl<const N: usize> TryFrom<&[u8]> for TinyString<N> {
+    type Error = Utf8Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        str::from_utf8(value)?;
+        Ok(unsafe { Self::from_utf8_unchecked(TinyVec::from_slice_copied(value)) })
+    }
+}
+
+impl<const N: usize> TryFrom<TinyVec<u8, N>> for TinyString<N> {
+    type Error = Utf8Error;
+
+    fn try_from(value: TinyVec<u8, N>) -> Result<Self, Self::Error> {
+        Self::from_utf8(value)
+    }
+}
+
+impl<const N: usize> TryFrom<Vec<u8>> for TinyString<N> {
+    type Error = Utf8Error;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        str::from_utf8(value.as_slice())?;
+        Ok(unsafe { Self::from_utf8_unchecked(TinyVec::from_vec(value)) })
     }
 }
 

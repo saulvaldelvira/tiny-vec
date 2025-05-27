@@ -233,7 +233,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         let stack = [ const { MaybeUninit::uninit() }; N ];
         Self {
             inner: TinyVecInner { stack: ManuallyDrop::new(stack) },
-            len: Length(0),
+            len: Length::new_stack(0),
         }
     }
 
@@ -252,16 +252,168 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Creates a new [TinyVec] from the given array
-    pub const fn from_array(arr: [T; N]) -> Self {
-        let md = ManuallyDrop::new(arr);
-        /* TODO: Use MaybeUninit::transpose when stabilized
-         * SAFETY: MaybeUninit<T> has the same memory layout as T */
-        let arr: [MaybeUninit<T>; N] = unsafe { mem::transmute_copy(&md) };
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let tv = TinyVec::<i32, 10>::from_array([1, 2, 3, 4]);
+    ///
+    /// assert_eq!(tv.capacity(), 10);
+    /// assert!(tv.lives_on_stack());
+    /// ```
+    pub fn from_array<const M: usize>(arr: [T; M]) -> Self {
         let arr = ManuallyDrop::new(arr);
-        Self {
-            inner: TinyVecInner { stack: arr },
-            len: Length::new_stack(N)
+        let mut tv = Self::with_capacity(M);
+
+        let src = arr.as_ptr();
+        let dst = tv.as_mut_ptr();
+
+        unsafe {
+            ptr::copy(src, dst, M);
+            tv.set_len(M);
         }
+
+        tv
+    }
+
+    /// Like [from_array](Self::from_array), but the array's length
+    /// and the TinyVec's N are equal, so we can call it on const functions.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let tv = TinyVec::from_array_eq_size([1, 2, 3, 4]);
+    ///
+    /// assert_eq!(tv.capacity(), 4);
+    /// assert!(tv.lives_on_stack());
+    /// ```
+    pub const fn from_array_eq_size(arr: [T; N]) -> Self {
+        let mut tv = Self::new();
+
+        let src = arr.as_ptr();
+        let dst = tv.as_mut_ptr();
+
+        unsafe {
+            ptr::copy(src, dst, N);
+            tv.set_len(N);
+        }
+
+        mem::forget(arr);
+        tv
+    }
+
+    /// Creates a new [TinyVec] from the given [Vec]
+    ///
+    /// The returned TinyVec will have no extra capacity.
+    /// This means that it won't reuse the Vec's buffer,
+    /// and won't allocate more that vec.len() elements.
+    ///
+    /// If the vector has less than N elements, they'll
+    /// be stored in the stack.
+    ///
+    /// If you want to reuse the Vec's buffer, use the
+    /// [from_vec_reuse_buffer](Self::from_vec_reuse_buffer) function
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let vec = vec![1, 2, 3, 4, 5];
+    ///
+    /// let tv = TinyVec::<i32, 10>::from_vec(vec);
+    ///
+    /// /* vec fits on the stack, so it won't heap-allocate the TinyVec */
+    /// assert!(tv.lives_on_stack());
+    /// ```
+    pub fn from_vec(mut vec: Vec<T>) -> Self {
+        let mut tv = Self::with_capacity(vec.len());
+        let dst = tv.as_mut_ptr();
+        let src = vec.as_ptr();
+        unsafe {
+            ptr::copy(
+                src,
+                dst,
+                vec.len()
+            );
+            vec.set_len(0);
+        }
+        tv
+    }
+
+    /// Like [from_vec](Self::from_vec), but it reuses the
+    /// [Vec]'s buffer.
+    ///
+    /// The returned TinyVec will have no extra capacity.
+    /// This means that it won't reuse the Vec's buffer,
+    /// and won't allocate more that vec.len() elements.
+    ///
+    /// For a version that creates a TinyVec with the mininum
+    /// capacity for this vec, check [from_vec](Self::from_vec)
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let vec = vec![1, 2, 3, 4, 5];
+    ///
+    /// let tv = TinyVec::<i32, 10>::from_vec_reuse_buffer(vec);
+    ///
+    /// /* This version of from_vec, will use the same buffer vec used */
+    /// assert!(!tv.lives_on_stack());
+    /// ```
+    pub fn from_vec_reuse_buffer(vec: Vec<T>) -> Self {
+        let mut vec = ManuallyDrop::new(vec);
+
+        let ptr = vec.as_mut_ptr();
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        let len = Length::new_heap(vec.len());
+        let cap = vec.capacity();
+
+        let raw = RawVec {
+            cap,
+            ptr,
+        };
+
+        let inner = TinyVecInner { raw };
+        Self {
+            inner,
+            len
+        }
+    }
+
+    /// Builds a TinyVec from a TinyVec with a different capacity generic parameter
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let v1 = TinyVec::<i32, 10>::from(&[1, 2, 3, 4]);
+    ///
+    /// let v2 = TinyVec::<i32, 7>::from_tiny_vec(v1.clone());
+    /// assert!(v2.lives_on_stack());
+    ///
+    /// let v3 = TinyVec::<i32, 2>::from_tiny_vec(v1);
+    /// /* v3 must be heap-allocated, since it can only store 2 elements
+    ///    on the stack, and v1 has 3*/
+    /// assert!(!v3.lives_on_stack());
+    ///
+    /// ```
+    pub fn from_tiny_vec<const M: usize>(mut vec: TinyVec<T, M>) -> Self {
+        let len = vec.len();
+        let mut tv = Self::with_capacity(len);
+
+        let src = vec.as_ptr();
+        let dst = tv.as_mut_ptr();
+
+        unsafe {
+            ptr::copy(src, dst, len);
+            vec.set_len(0);
+            tv.set_len(len);
+        }
+
+        tv
     }
 
     /// Creates a new [TinyVec] from the given slice.
@@ -769,7 +921,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// ```
     /// use tiny_vec::TinyVec;
     ///
-    /// let mut v = TinyVec::from([1, 2, 3, 4]);
+    /// let mut v = TinyVec::<_, 10>::from(&[1, 2, 3, 4]);
     /// let b = v.into_boxed_slice();
     ///
     /// assert_eq!(&b[..], [1, 2, 3, 4]);
@@ -817,6 +969,20 @@ impl<T, const N: usize> TinyVec<T, N> {
 
         unsafe { Vec::from_raw_parts(ptr, len, cap) }
     }
+}
+
+#[cfg(feature = "use-specialization")]
+macro_rules! maybe_default {
+    ($($t:tt)*) => {
+        default $($t)*
+    };
+}
+
+#[cfg(not(feature = "use-specialization"))]
+macro_rules! maybe_default {
+    ($($t:tt)*) => {
+        $($t)*
+    };
 }
 
 impl<T, const N: usize> Default for TinyVec<T, N> {
@@ -872,31 +1038,7 @@ impl<T, const N: usize> Drop for TinyVec<T, N> {
 
 impl<T, const N: usize> From<Vec<T>> for TinyVec<T, N> {
     fn from(value: Vec<T>) -> Self {
-        let mut md = ManuallyDrop::new(value);
-        let ptr = unsafe { NonNull::new_unchecked( md.as_mut_ptr() ) };
-        let inner = TinyVecInner {
-            raw: RawVec {
-                cap: md.capacity(),
-                ptr,
-            }
-        };
-
-        Self {
-            inner,
-            len: Length::new_heap(md.len()),
-        }
-    }
-}
-
-impl<T: Copy, const N: usize, const M: usize> From<&[T; M]> for TinyVec<T, N> {
-    fn from(value: &[T; M]) -> Self {
-        Self::from(value as &[T])
-    }
-}
-
-impl<T, const N: usize> From<[T; N]> for TinyVec<T, N> {
-    fn from(value: [T; N]) -> Self {
-        Self::from_array(value)
+        Self::from_vec(value)
     }
 }
 
@@ -934,15 +1076,11 @@ impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
 }
 
 impl<T: Clone, const N: usize> From<&[T]> for TinyVec<T, N> {
-    #[cfg(feature = "use-specialization")]
-    default fn from(value: &[T]) -> Self {
-        Self::from_slice(value)
-    }
-
-    #[cfg(not(feature = "use-specialization"))]
-    fn from(value: &[T]) -> Self {
-        Self::from_slice(value)
-    }
+    maybe_default!(
+        fn from(value: &[T]) -> Self {
+            Self::from_slice(value)
+        }
+    );
 }
 
 #[cfg(feature = "use-specialization")]
@@ -953,21 +1091,53 @@ impl<T: Clone + Copy, const N: usize> From<&[T]> for TinyVec<T, N> {
 }
 
 impl<T: Clone, const N: usize> From<&mut [T]> for TinyVec<T, N> {
-    #[cfg(feature = "use-specialization")]
-    default fn from(value: &mut [T]) -> Self {
-        Self::from_slice(value)
-    }
-
-    #[cfg(not(feature = "use-specialization"))]
-    fn from(value: &mut [T]) -> Self {
-        Self::from_slice(value)
-    }
+    maybe_default!(
+        fn from(value: &mut [T]) -> Self {
+            Self::from_slice(value)
+        }
+    );
 }
 
 #[cfg(feature = "use-specialization")]
 impl<T: Clone + Copy, const N: usize> From<&mut [T]> for TinyVec<T, N> {
     fn from(value: &mut [T]) -> Self {
         Self::from_slice_copied(value)
+    }
+}
+
+impl<T, const N: usize> From<[T; N]> for TinyVec<T, N> {
+    fn from(value: [T; N]) -> Self {
+        Self::from_array_eq_size(value)
+    }
+}
+
+impl<T: Clone, const N: usize, const M: usize> From<&[T; M]> for TinyVec<T, N> {
+    maybe_default!(
+        fn from(value: &[T; M]) -> Self {
+            Self::from_slice(value)
+        }
+    );
+}
+
+#[cfg(feature = "use-specialization")]
+impl<T: Clone + Copy, const N: usize, const M: usize> From<&[T; M]> for TinyVec<T, N> {
+    fn from(value: &[T; M]) -> Self {
+        Self::from_slice_copied(value as &[T])
+    }
+}
+
+impl<T: Clone, const N: usize> Clone for TinyVec<T, N> {
+    maybe_default!(
+        fn clone(&self) -> Self {
+            Self::from_slice(self.as_slice())
+        }
+    );
+}
+
+#[cfg(feature = "use-specialization")]
+impl<T: Clone + Copy, const N: usize> Clone for TinyVec<T, N> {
+    fn clone(&self) -> Self {
+        Self::from_slice_copied(self.as_slice())
     }
 }
 
