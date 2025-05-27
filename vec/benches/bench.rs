@@ -107,7 +107,7 @@ fn gen_remove(n: usize, b: &mut Bencher) {
     }
 
     b.iter(|| {
-        let mut vec = TinyVec::<_, N>::from_elem(0, n);
+        let mut vec = tinyvec![0; n as _];
 
         for _ in 0..n {
             remove_noinline(&mut vec, 0);
@@ -171,8 +171,8 @@ fn gen_pushpop(b: &mut Bencher) {
 }
 
 fn gen_from_elem(n: usize, b: &mut Bencher) {
-    b.iter(|| {
-        TVec::from_elem(42, n)
+    b.iter(|| -> TVec {
+        tinyvec![42; n as _]
     });
 }
 

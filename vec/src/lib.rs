@@ -220,11 +220,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         unsafe {
             let src = self.inner.as_ptr_stack();
             let dst = vec.ptr.as_ptr();
-            ptr::copy(
-                src,
-                dst,
-                self.len.get()
-            );
+            ptr::copy_nonoverlapping(src, dst, self.len());
             self.inner.raw = vec;
         }
         self.len.set_heap();
@@ -238,12 +234,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         unsafe {
             let src = rv.ptr.as_ptr();
             let dst = stack.as_ptr() as *mut T;
-            ptr::copy(
-                src,
-                dst,
-                self.len.get()
-            );
-
+            ptr::copy_nonoverlapping(src,dst,self.len());
             rv.destroy();
         }
 
@@ -267,11 +258,15 @@ impl<T, const N: usize> TinyVec<T, N> {
     pub fn with_capacity(cap: usize) -> Self {
         let mut len = Length(0);
         let inner = if cap <= N {
-            let s = [ const { MaybeUninit::uninit() }; N ];
-            TinyVecInner { stack: ManuallyDrop::new(s) }
+            let s = [const { MaybeUninit::uninit() }; N];
+            TinyVecInner {
+                stack: ManuallyDrop::new(s)
+            }
         } else {
             len.set_heap();
-            TinyVecInner { raw: RawVec::with_capacity(cap) }
+            TinyVecInner {
+                raw: RawVec::with_capacity(cap)
+            }
         };
 
         Self { inner, len }
@@ -358,11 +353,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         let dst = tv.as_mut_ptr();
         let src = vec.as_ptr();
         unsafe {
-            ptr::copy(
-                src,
-                dst,
-                vec.len()
-            );
+            ptr::copy(src, dst, vec.len());
             vec.set_len(0);
         }
         tv
@@ -394,19 +385,13 @@ impl<T, const N: usize> TinyVec<T, N> {
 
         let ptr = vec.as_mut_ptr();
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
+
         let len = Length::new_heap(vec.len());
         let cap = vec.capacity();
-
-        let raw = RawVec {
-            cap,
-            ptr,
-        };
+        let raw = RawVec { cap, ptr };
 
         let inner = TinyVecInner { raw };
-        Self {
-            inner,
-            len
-        }
+        Self { inner, len }
     }
 
     /// Builds a TinyVec from a TinyVec with a different capacity generic parameter
@@ -429,16 +414,13 @@ impl<T, const N: usize> TinyVec<T, N> {
     pub fn from_tiny_vec<const M: usize>(mut vec: TinyVec<T, M>) -> Self {
         let len = vec.len();
         let mut tv = Self::with_capacity(len);
-
         let src = vec.as_ptr();
         let dst = tv.as_mut_ptr();
-
         unsafe {
             ptr::copy(src, dst, len);
             vec.set_len(0);
             tv.set_len(len);
         }
-
         tv
     }
 
@@ -613,9 +595,10 @@ impl<T, const N: usize> TinyVec<T, N> {
             None
         } else {
             self.len.sub(1);
-            let val =
-            unsafe {
-                self.as_ptr().add(self.len.get()).read()
+            let val = unsafe {
+                self.as_ptr()
+                    .add(self.len.get())
+                    .read()
             };
             Some(val)
         }
@@ -623,7 +606,9 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Inserts an element in the given index position
     pub fn insert(&mut self, index: usize, elem: T) -> Result<(),T> {
-        if index > self.len.get() { return Err(elem) }
+        if index > self.len.get() {
+            return Err(elem)
+        }
         unsafe { self.insert_unckecked(index, elem); }
         Ok(())
     }
@@ -633,7 +618,6 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// The index should be valid.
     pub unsafe fn insert_unckecked(&mut self, index: usize, elem: T) {
         self.reserve(1);
-
         unsafe {
             ptr::copy(
                 self.as_ptr().add(index),
@@ -770,7 +754,11 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// # Safety
     /// Index should be < [TinyVec::len]\()
     pub unsafe fn remove_unchecked(&mut self, index: usize) -> T {
-        debug_assert!(index < self.len.get(), "Index is >= than {}, this will trigger UB", self.len.get());
+        debug_assert!(
+            index < self.len(),
+            "Index is >= than {}, this will trigger UB",
+            self.len()
+        );
 
         unsafe {
             self.len.sub(1);
