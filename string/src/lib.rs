@@ -67,7 +67,6 @@ impl<const N: usize> TinyString<N> {
     /// Creates a new [TinyString] with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self(TinyVec::with_capacity(cap))
-
     }
 
     /// Creates a new [TinyString] from the given utf8 buffer.
@@ -97,6 +96,7 @@ impl<const N: usize> TinyString<N> {
     pub const fn is_empty(&self) -> bool { self.0.is_empty() }
 
     /// Returns the allocated capacity for this string
+    #[inline]
     pub const fn capacity(&self) -> usize { self.0.capacity() }
 
     /// Pushes a character into the string
@@ -112,11 +112,13 @@ impl<const N: usize> TinyString<N> {
     }
 
     /// Pushes a str slice into this string
+    #[inline]
     pub fn push_str(&mut self, s: &str) {
         self.0.push_slice(s.as_bytes());
     }
 
     /// Shrinks the capacity of this string to fit exactly it's length
+    #[inline]
     pub fn shrink_to_fit(&mut self) {
         self.0.shrink_to_fit();
     }
@@ -132,17 +134,13 @@ impl<const N: usize> Deref for TinyString<N> {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        unsafe {
-            str::from_utf8_unchecked(&self.0)
-        }
+        unsafe { str::from_utf8_unchecked(&self.0) }
     }
 }
 
 impl<const N: usize> DerefMut for TinyString<N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe {
-            str::from_utf8_unchecked_mut(&mut self.0)
-        }
+        unsafe { str::from_utf8_unchecked_mut(&mut self.0) }
     }
 }
 

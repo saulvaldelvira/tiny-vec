@@ -56,7 +56,6 @@
 //! NOTE: The [n_elements_for_stack] function returns the maximun
 //! number of elements for a type, such that it doesn't waste extra
 //! space when moved to the heap
-//!
 
 #![allow(incomplete_features)]
 #![cfg_attr(feature = "nightly-const-generics", feature(generic_const_exprs))]
@@ -81,18 +80,23 @@ union TinyVecInner<T, const N: usize> {
 }
 
 impl<T, const N: usize> TinyVecInner<T, N> {
+
+    #[inline(always)]
     const unsafe fn as_ptr_stack(&self) -> *const T {
         unsafe { &self.stack as *const _ as *const T }
     }
 
+    #[inline(always)]
     const unsafe fn as_ptr_stack_mut(&mut self) -> *mut T {
         unsafe { &mut self.stack as *mut _ as *mut T }
     }
 
+    #[inline(always)]
     const unsafe fn as_ptr_heap(&self) -> *const T {
         unsafe { self.raw.ptr.as_ptr() }
     }
 
+    #[inline(always)]
     const unsafe fn as_ptr_heap_mut(&mut self) -> *mut T {
         unsafe { self.raw.ptr.as_ptr() }
     }
@@ -102,46 +106,48 @@ impl<T, const N: usize> TinyVecInner<T, N> {
 struct Length(usize);
 
 impl Length {
-    #[inline]
+    #[inline(always)]
     const fn new_stack(len: usize) -> Self {
         Self(len << 1)
     }
 
+    #[inline(always)]
     const fn new_heap(len: usize) -> Self {
         Self(len << 1 | 0b1)
     }
 
-    #[inline]
+    #[inline(always)]
     const fn is_stack(&self) -> bool {
         (self.0 & 0b1) == 0
     }
 
-    #[inline]
+    #[inline(always)]
     const fn set_heap(&mut self) {
         self.0 |= 0b1;
     }
 
-    #[inline]
+    #[inline(always)]
     const fn set_stack(&mut self) {
         self.0 &= 0b0;
     }
 
+    #[inline(always)]
     const fn set(&mut self, n: usize) {
         self.0 &= 0b1;
         self.0 |= n << 1;
     }
 
-    #[inline]
+    #[inline(always)]
     const fn get(&self) -> usize {
         self.0 >> 1
     }
 
-    #[inline]
+    #[inline(always)]
     const fn add(&mut self, n: usize) {
         self.0 += n << 1;
     }
 
-    #[inline]
+    #[inline(always)]
     const fn sub(&mut self, n: usize) {
         self.0 -= n << 1;
     }
@@ -265,6 +271,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     pub const fn is_empty(&self) -> bool { self.len.get() == 0 }
 
     /// Returns the allocated capacity for this vector
+    #[inline]
     pub const fn capacity(&self) -> usize {
         if self.len.is_stack() {
             N
@@ -295,6 +302,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     pub const fn lives_on_stack(&self) -> bool { self.len.is_stack() }
 
     /// Gets a const pointer to the vec's buffer
+    #[inline]
     pub const fn as_ptr(&self) -> *const T {
         unsafe {
             if self.len.is_stack() {
@@ -306,6 +314,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Gets a mutable pointer to the vec's buffer
+    #[inline]
     pub const fn as_mut_ptr(&mut self) -> *mut T {
         unsafe {
             if self.len.is_stack() {
@@ -317,6 +326,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Gets a mutable pointer to the vec's buffer as a [NonNull]
+    #[inline]
     pub const fn as_non_null(&mut self) -> NonNull<T> {
         unsafe {
             NonNull::new_unchecked(self.as_mut_ptr())
@@ -324,6 +334,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Gets a slice of the whole vector
+    #[inline]
     pub const fn as_slice(&self) -> &[T] {
         unsafe {
             slice::from_raw_parts(self.as_ptr(), self.len.get())
@@ -331,6 +342,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Gets a mutable slice of the whole vector
+    #[inline]
     pub const fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe {
             slice::from_raw_parts_mut(self.as_mut_ptr(), self.len.get())
@@ -353,6 +365,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Appends an element to the back of the vector
+    #[inline]
     pub fn push(&mut self, elem: T) {
         self.reserve(1);
         unsafe { self.push_unchecked(elem); }
@@ -399,7 +412,6 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Inserts an element in the given index position
-    #[inline]
     pub fn insert(&mut self, index: usize, elem: T) -> Result<(),T> {
         if index > self.len.get() { return Err(elem) }
         unsafe { self.insert_unckecked(index, elem); }
@@ -565,8 +577,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     #[inline]
     pub fn remove(&mut self, index: usize) -> Option<T> {
         if index >= self.len.get() { return None }
-        /* Safety: We've just checked the invariant. Index will always
-         * be < self.len, so it's 100% safe to call this function */
+        /* Safety: We've just checked that index is < self.len */
         Some(unsafe { self.remove_unchecked(index) })
     }
 
@@ -574,6 +585,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// # Panics
     /// If either a or b are out of bounds for [0, len)
+    #[inline]
     pub fn swap(&mut self, a: usize, b: usize) {
         self.swap_checked(a, b).unwrap_or_else(|| {
             panic!("Index out of bounds")
@@ -599,7 +611,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// # Safety
     /// The caller must ensure that both `a` and `b` are in bounds [0, len)
     /// For a checked version of this function, check [swap_checked](Self::swap_checked)
-    pub unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
+    pub const unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
         unsafe {
             let ap = self.as_mut_ptr().add(a);
             let bp = self.as_mut_ptr().add(b);
