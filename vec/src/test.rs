@@ -62,3 +62,12 @@ fn simple() {
     assert_eq!(&svec[..], &[]);
     assert!(svec.is_empty());
 }
+
+#[test]
+fn macro_test() {
+    let tv: TinyVec<i32, 5> = tinyvec![1, 2, 3];
+    assert_eq!(tv.len(), 3);
+
+    let tv: TinyVec<i32, 5> = tinyvec![10; 20];
+    assert_eq!(tv.len(), 20);
+}

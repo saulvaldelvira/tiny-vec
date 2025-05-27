@@ -155,6 +155,32 @@ impl Length {
     }
 }
 
+/// Macro to create [TinyVec]s
+///
+/// # Example
+/// ```
+/// use tiny_vec::{TinyVec, tinyvec};
+///
+/// // Create a TinyVec with a list of elements
+/// let v: TinyVec<_, 10> = tinyvec![1, 2, 3, 4];
+/// assert_eq!(&v[0..4], &[1, 2, 3, 4]);
+///
+/// // Create a TinyVec with 100 zeroes
+/// let v: TinyVec<_, 10> = tinyvec![0; 100];
+/// assert_eq!(v[20], 0);
+/// ```
+#[macro_export]
+macro_rules! tinyvec {
+    ($elem:expr; $n:expr) => ({
+        let mut tv = $crate::TinyVec::new();
+        tv.resize($n, $elem);
+        tv
+    });
+    ($($x:expr),*$(,)?) => ({
+        $crate::TinyVec::from(&[ $( $x ,)*])
+    });
+}
+
 /// The maximun number of elements that can be stored in the stack
 /// for the vector, without incrementing it's size
 ///
@@ -426,7 +452,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         T: Clone
     {
         let mut v = Self::with_capacity(slice.len());
-        v.push_slice(slice);
+        v.extend_from_slice(slice);
         v
     }
 
@@ -442,7 +468,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         T: Copy
     {
         let mut v = Self::with_capacity(slice.len());
-        v.push_slice_copied(slice);
+        v.extend_from_slice_copied(slice);
         v
     }
 
@@ -627,7 +653,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         if cap < self.len() {
             self.truncate(cap);
         } else {
-            let n = self.len() - cap;
+            let n = cap - self.len();
             self.reserve(n);
 
             unsafe {
@@ -857,13 +883,13 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// This function clones the elements in the slice.
     ///
-    /// If the type T is [Copy], the [push_slice_copied](Self::push_slice_copied)
+    /// If the type T is [Copy], the [extend_from_slice_copied](Self::extend_from_slice_copied)
     /// function is a more optimized alternative
-    pub fn push_slice(&mut self, s: &[T])
+    pub fn extend_from_slice(&mut self, s: &[T])
     where
         T: Clone
     {
-        self.extend_from(s.iter().map(Clone::clone));
+        self.extend(s.iter().map(Clone::clone));
     }
 
     /// Copies all the elements of the given slice into the vector
@@ -872,8 +898,8 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// is faster that calling [clone](Clone::clone).
     /// That's why it requires T to implement [Copy].
     ///
-    /// For a cloning alternative, use [push_slice](Self::push_slice)
-    pub fn push_slice_copied(&mut self, s: &[T])
+    /// For a cloning alternative, use [extend_from_slice](Self::extend_from_slice)
+    pub fn extend_from_slice_copied(&mut self, s: &[T])
     where
         T: Copy
     {
@@ -891,28 +917,6 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
 
         self.len.add(len);
-    }
-
-    /// Pushes all the available elements from the iterator into the vector
-    pub fn extend_from<I>(&mut self, it: I)
-    where
-        I: IntoIterator<Item = T>,
-    {
-        let it = it.into_iter();
-
-        let (min, max) = it.size_hint();
-        let reserve = match max {
-            Some(max) => max,
-            None => min,
-        };
-
-        if reserve > 0 {
-            self.reserve(reserve);
-        }
-
-        for elem in it {
-            unsafe { self.push_unchecked(elem); }
-        }
     }
 
     /// Converts this [TinyVec] into a boxed slice
@@ -971,6 +975,26 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 }
 
+impl<T, const N: usize> Extend<T> for TinyVec<T, N> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        let iter = iter.into_iter();
+
+        let (min, max) = iter.size_hint();
+        let reserve = match max {
+            Some(max) => max,
+            None => min,
+        };
+
+        if reserve > 0 {
+            self.reserve(reserve);
+        }
+
+        for elem in iter {
+            unsafe { self.push_unchecked(elem); }
+        }
+    }
+}
+
 #[cfg(feature = "use-specialization")]
 macro_rules! maybe_default {
     ($($t:tt)*) => {
@@ -1015,7 +1039,6 @@ impl<T, const N: usize> Deref for TinyVec<T, N> {
         self.as_slice()
     }
 }
-
 
 impl<T, const N: usize> DerefMut for TinyVec<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {

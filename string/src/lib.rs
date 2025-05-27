@@ -132,7 +132,7 @@ impl<const N: usize> TinyString<N> {
         } else {
             let mut buf = [0_u8; 4];
             c.encode_utf8(&mut buf);
-            self.0.push_slice(&buf[..len]);
+            self.0.extend_from_slice(&buf[..len]);
         }
     }
 
@@ -161,7 +161,7 @@ impl<const N: usize> TinyString<N> {
     /// Pushes a str slice into this string
     #[inline]
     pub fn push_str(&mut self, s: &str) {
-        self.0.push_slice_copied(s.as_bytes());
+        self.0.extend_from_slice_copied(s.as_bytes());
     }
 
     /// Shrinks the capacity of this string to fit exactly it's length
