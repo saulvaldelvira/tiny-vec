@@ -65,6 +65,7 @@
 
 extern crate alloc;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ops::{Deref, DerefMut};
@@ -761,6 +762,61 @@ impl<T, const N: usize> TinyVec<T, N> {
             unsafe { self.push_unchecked(elem); }
         }
     }
+
+    /// Converts this [TinyVec] into a boxed slice
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut v = TinyVec::from([1, 2, 3, 4]);
+    /// let b = v.into_boxed_slice();
+    ///
+    /// assert_eq!(&b[..], [1, 2, 3, 4]);
+    /// ```
+    pub fn into_boxed_slice(self) -> Box<[T]> {
+        let mut vec = ManuallyDrop::new(self);
+
+        if vec.lives_on_stack() {
+            unsafe { vec.switch_to_heap(0) };
+        }
+        debug_assert!(!vec.lives_on_stack());
+
+        let len = vec.len();
+        unsafe { vec.inner.raw.shrink_to_fit(len); }
+        debug_assert_eq!(len, vec.capacity());
+
+        let ptr = vec.as_mut_ptr();
+        unsafe {
+            let slice = slice::from_raw_parts_mut(ptr, len);
+            Box::from_raw(slice)
+        }
+    }
+
+    /// Converts this [TinyVec] into a standard [Vec]
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut v = TinyVec::from([1, 2, 3, 4]);
+    /// let b = v.into_vec();
+    ///
+    /// assert_eq!(&b[..], &[1, 2, 3, 4]);
+    /// ```
+    pub fn into_vec(self) -> Vec<T> {
+        let mut vec = ManuallyDrop::new(self);
+
+        if vec.lives_on_stack() {
+            unsafe { vec.switch_to_heap(0) };
+        }
+
+        let ptr = vec.as_mut_ptr();
+        let len = vec.len();
+        let cap = vec.capacity();
+
+        unsafe { Vec::from_raw_parts(ptr, len, cap) }
+    }
 }
 
 impl<T, const N: usize> Default for TinyVec<T, N> {
@@ -856,6 +912,12 @@ impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
             unsafe { vec.push_unchecked(elem) };
         }
         vec
+    }
+}
+
+impl<T, const N: usize> From<TinyVec<T, N>> for Vec<T> {
+    fn from(value: TinyVec<T, N>) -> Self {
+        value.into_vec()
     }
 }
 

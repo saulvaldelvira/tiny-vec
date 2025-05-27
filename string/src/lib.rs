@@ -40,15 +40,21 @@
 //! ```
 //!
 //! # Memory layout
-//! TinyString is based on [TinyVec], just like [std::string::String] if based
-//! on [std::vec::Vec].
+//! TinyString is based on [TinyVec], just like [alloc::string::String] if based
+//! on [alloc::vec::Vec].
 //!
 //! You can read the [tiny_vec] crate documentation to learn about the internal
 //! representation of the data.
 
+#![no_std]
+
 use core::fmt::{self, Display};
 use core::ops::{Deref, DerefMut};
-use core::str::Utf8Error;
+use core::str::{self, Utf8Error};
+
+extern crate alloc;
+use alloc::vec::Vec;
+use alloc::boxed::Box;
 
 use tiny_vec::TinyVec;
 
@@ -176,6 +182,22 @@ impl<const N: usize> TinyString<N> {
         self.0.reserve_exact(n);
     }
 
+    /// Converts this TinyString into a boxed str
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut s = TinyString::<10>::new();
+    /// s.push_str("abc");
+    ///
+    /// let b = s.into_boxed_str();
+    /// assert_eq!(&*b, "abc");
+    /// ```
+    pub fn into_boxed_str(self) -> Box<str> {
+        let b = self.0.into_boxed_slice();
+        unsafe { alloc::str::from_boxed_utf8_unchecked(b) }
+    }
 }
 
 impl<const N: usize> Default for TinyString<N> {
@@ -203,6 +225,24 @@ impl<const N: usize> From<&str> for TinyString<N> {
         let mut s = Self::with_capacity(value.len());
         s.push_str(value);
         s
+    }
+}
+
+impl<const N: usize> From<TinyString<N>> for TinyVec<u8, N> {
+    fn from(value: TinyString<N>) -> Self {
+        value.0
+    }
+}
+
+impl<const N: usize> From<TinyString<N>> for Vec<u8> {
+    fn from(value: TinyString<N>) -> Self {
+        value.0.into_vec()
+    }
+}
+
+impl<const N: usize> From<TinyString<N>> for Box<str> {
+    fn from(value: TinyString<N>) -> Self {
+        value.into_boxed_str()
     }
 }
 
@@ -251,13 +291,13 @@ impl<const N: usize> AsMut<str> for TinyString<N> {
 }
 
 impl<const N: usize> fmt::Debug for TinyString<N> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}", self.bytes())
     }
 }
 
 impl<const N: usize> Display for TinyString<N> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
