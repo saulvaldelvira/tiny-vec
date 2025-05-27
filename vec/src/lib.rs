@@ -653,7 +653,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///   stored need to be droped
     /// - If you extend the length, you may access uninitialized memory
     #[inline]
-    pub const unsafe fn set_length(&mut self, len: usize) {
+    pub const unsafe fn set_len(&mut self, len: usize) {
         self.len.set(len);
     }
 
@@ -664,7 +664,7 @@ impl<T, const N: usize> TinyVec<T, N> {
             for e in &mut self[len..] {
                 unsafe { ptr::drop_in_place(e) }
             }
-            unsafe { self.set_length(len); }
+            unsafe { self.set_len(len); }
         }
     }
 
