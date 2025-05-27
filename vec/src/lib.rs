@@ -587,23 +587,24 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// If either a or b are out of bounds for [0, len)
     #[inline]
     pub fn swap(&mut self, a: usize, b: usize) {
-        self.swap_checked(a, b).unwrap_or_else(|| {
-            panic!("Index out of bounds")
+        self.swap_checked(a, b).unwrap_or_else(|n| {
+            panic!("Index {n} out of bounds")
         });
     }
 
     /// Swaps the elements on index a and b
     ///
-    /// Returns [None] if either a or b are out of bounds for [0, len)
-    pub fn swap_checked(&mut self, a: usize, b: usize) -> Option<()> {
+    /// # Errors
+    /// If an index is out of bounds for [0, len), return an [Err] variant.
+    pub const fn swap_checked(&mut self, a: usize, b: usize) -> Result<(),usize> {
         if a >= self.len.get() {
-            return None
+            return Err(a)
         };
         if b >= self.len.get() {
-            return None
+            return Err(b)
         };
         unsafe { self.swap_unchecked(a, b); }
-        Some(())
+        Ok(())
     }
 
     /// Swaps the elements on index a and b, without checking bounds
