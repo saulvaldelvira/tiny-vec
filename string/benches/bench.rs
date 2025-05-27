@@ -8,7 +8,7 @@ const N_ITER: usize = 20000;
 const INPUT: &str = "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStT";
 
 #[bench]
-fn bench_std_vector(b: &mut Bencher) {
+fn bench_std_string(b: &mut Bencher) {
     b.iter(|| {
         for _ in 0..N_ITER {
             let s: String = INPUT.chars().filter(|c| c.is_ascii_lowercase()).collect();
@@ -25,7 +25,7 @@ fn bench_tiny<const N: usize>() {
 }
 
 #[bench]
-fn bench_tiny_vector_exact(b: &mut Bencher) {
+fn bench_tiny_string_exact(b: &mut Bencher) {
     let s: TinyString<20> = INPUT.chars().filter(|c| c.is_ascii_lowercase()).collect();
     assert_eq!(s.len(), 20);
     b.iter(|| {
@@ -36,7 +36,7 @@ fn bench_tiny_vector_exact(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_tiny_vector_realloc_end(b: &mut Bencher) {
+fn bench_tiny_string_realloc_end(b: &mut Bencher) {
     b.iter(|| {
          for _ in 0..N_ITER {
             bench_tiny::<17>()
@@ -45,7 +45,7 @@ fn bench_tiny_vector_realloc_end(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_tiny_vector_realloc_half(b: &mut Bencher) {
+fn bench_tiny_string_realloc_half(b: &mut Bencher) {
     b.iter(|| {
          for _ in 0..N_ITER {
             bench_tiny::<10>()
@@ -54,7 +54,7 @@ fn bench_tiny_vector_realloc_half(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_tiny_vector_realloc_start(b: &mut Bencher) {
+fn bench_tiny_string_realloc_start(b: &mut Bencher) {
     b.iter(|| {
          for _ in 0..N_ITER {
             bench_tiny::<5>()

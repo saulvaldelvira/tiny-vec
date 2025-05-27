@@ -59,6 +59,7 @@
 
 #![allow(incomplete_features)]
 #![cfg_attr(feature = "nightly-const-generics", feature(generic_const_exprs))]
+#![cfg_attr(feature = "specialization", feature(min_specialization))]
 
 #![no_std]
 
@@ -260,6 +261,36 @@ impl<T, const N: usize> TinyVec<T, N> {
             inner: TinyVecInner { stack: arr },
             len: Length::new_stack(N)
         }
+    }
+
+    /// Creates a new [TinyVec] from the given slice.
+    ///
+    /// This function clones the elements in the slice.
+    /// If the type T is [Copy], the [from_slice_copied](Self::from_slice_copied)
+    /// function is a more optimized alternative
+    pub fn from_slice(slice: &[T]) -> Self
+    where
+        T: Clone
+    {
+        let mut v = Self::with_capacity(slice.len());
+        v.push_slice(slice);
+        v
+    }
+
+    /// Creates a new [TinyVec] from the given slice.
+    ///
+    /// This function copies the slice into the buffer, which
+    /// is faster that calling [clone](Clone::clone).
+    /// That's why it requires T to implement [Copy].
+    ///
+    /// For a cloning alternative, use [from_slice](Self::from_slice)
+    pub fn from_slice_copied(slice: &[T]) -> Self
+    where
+        T: Copy
+    {
+        let mut v = Self::with_capacity(slice.len());
+        v.push_slice_copied(slice);
+        v
     }
 
     /// Returns the number of elements inside this vec
@@ -632,8 +663,8 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
-    #[inline]
     /// Shrinks the capacity of the vector to fit exactly it's length
+    #[inline]
     pub fn shrink_to_fit(&mut self) {
         if self.len.is_stack() { return }
 
@@ -670,7 +701,26 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Copies all the elements of the given slice into the vector
+    ///
+    /// This function clones the elements in the slice.
+    ///
+    /// If the type T is [Copy], the [push_slice_copied](Self::push_slice_copied)
+    /// function is a more optimized alternative
     pub fn push_slice(&mut self, s: &[T])
+    where
+        T: Clone
+    {
+        self.extend_from(s.iter().map(Clone::clone));
+    }
+
+    /// Copies all the elements of the given slice into the vector
+    ///
+    /// This function copies the slice into the buffer, which
+    /// is faster that calling [clone](Clone::clone).
+    /// That's why it requires T to implement [Copy].
+    ///
+    /// For a cloning alternative, use [push_slice](Self::push_slice)
+    pub fn push_slice_copied(&mut self, s: &[T])
     where
         T: Copy
     {
@@ -725,11 +775,16 @@ impl<T: fmt::Debug, const N: usize> fmt::Debug for TinyVec<T, N> {
     }
 }
 
-impl<T: PartialEq, const N: usize> PartialEq for TinyVec<T, N> {
-    fn eq(&self, other: &Self) -> bool {
-        self.deref() == other.deref()
+impl<T: PartialEq, const N: usize, S> PartialEq<S> for TinyVec<T, N>
+where
+    S: AsRef<[T]>,
+{
+    fn eq(&self, other: &S) -> bool {
+        self.as_slice() == other.as_ref()
     }
 }
+
+impl<T: PartialEq, const N: usize> Eq for TinyVec<T, N> {}
 
 impl<T, const N: usize> Deref for TinyVec<T, N> {
     type Target = [T];
@@ -777,14 +832,6 @@ impl<T, const N: usize> From<Vec<T>> for TinyVec<T, N> {
     }
 }
 
-impl<T: Copy, const N: usize> From<&[T]> for TinyVec<T, N> {
-    fn from(value: &[T]) -> Self {
-        let mut v = Self::with_capacity(value.len());
-        v.push_slice(value);
-        v
-    }
-}
-
 impl<T: Copy, const N: usize, const M: usize> From<&[T; M]> for TinyVec<T, N> {
     fn from(value: &[T; M]) -> Self {
         Self::from(value as &[T])
@@ -809,6 +856,56 @@ impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
             unsafe { vec.push_unchecked(elem) };
         }
         vec
+    }
+}
+
+impl<T, const N: usize> AsRef<[T]> for TinyVec<T, N> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.as_mut_slice()
+    }
+}
+
+impl<T: Clone, const N: usize> From<&[T]> for TinyVec<T, N> {
+    #[cfg(feature = "specialization")]
+    default fn from(value: &[T]) -> Self {
+        Self::from_slice(value)
+    }
+
+    #[cfg(not(feature = "specialization"))]
+    fn from(value: &[T]) -> Self {
+        Self::from_slice(value)
+    }
+}
+
+#[cfg(feature = "specialization")]
+impl<T: Clone + Copy, const N: usize> From<&[T]> for TinyVec<T, N> {
+    fn from(value: &[T]) -> Self {
+        Self::from_slice_copied(value)
+    }
+}
+
+impl<T: Clone, const N: usize> From<&mut [T]> for TinyVec<T, N> {
+    #[cfg(feature = "specialization")]
+    default fn from(value: &mut [T]) -> Self {
+        Self::from_slice(value)
+    }
+
+    #[cfg(not(feature = "specialization"))]
+    fn from(value: &mut [T]) -> Self {
+        Self::from_slice(value)
+    }
+}
+
+#[cfg(feature = "specialization")]
+impl<T: Clone + Copy, const N: usize> From<&mut [T]> for TinyVec<T, N> {
+    fn from(value: &mut [T]) -> Self {
+        Self::from_slice_copied(value)
     }
 }
 

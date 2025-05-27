@@ -46,6 +46,7 @@
 //! You can read the [tiny_vec] crate documentation to learn about the internal
 //! representation of the data.
 
+use core::fmt::{self, Display};
 use core::ops::{Deref, DerefMut};
 use core::str::Utf8Error;
 
@@ -99,6 +100,24 @@ impl<const N: usize> TinyString<N> {
     #[inline]
     pub const fn capacity(&self) -> usize { self.0.capacity() }
 
+    /// Returns a str slice
+    #[inline]
+    pub const fn as_str(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(self.0.as_slice()) }
+    }
+
+    /// Returns a mutable str slice
+    #[inline]
+    pub const fn as_mut_str(&mut self) -> &mut str {
+        unsafe { str::from_utf8_unchecked_mut(self.0.as_mut_slice()) }
+    }
+
+    /// Returns the string as a byte slice
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
     /// Pushes a character into the string
     pub fn push(&mut self, c: char) {
         let len = c.len_utf8();
@@ -111,10 +130,32 @@ impl<const N: usize> TinyString<N> {
         }
     }
 
+    /// Returns the last char of this string, if present
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut s = TinyString::<10>::new();
+    ///
+    /// s.push_str("abcd");
+    ///
+    /// assert_eq!(s.pop(), Some('d'));
+    /// assert_eq!(s, "abc");
+    /// ```
+    pub fn pop(&mut self) -> Option<char> {
+        let c = self.chars().next_back()?;
+        let new_len = self.len() - c.len_utf8();
+        unsafe {
+            self.0.set_len(new_len);
+        }
+        Some(c)
+    }
+
     /// Pushes a str slice into this string
     #[inline]
     pub fn push_str(&mut self, s: &str) {
-        self.0.push_slice(s.as_bytes());
+        self.0.push_slice_copied(s.as_bytes());
     }
 
     /// Shrinks the capacity of this string to fit exactly it's length
@@ -122,6 +163,19 @@ impl<const N: usize> TinyString<N> {
     pub fn shrink_to_fit(&mut self) {
         self.0.shrink_to_fit();
     }
+
+    /// Reserves space for, at least, n bytes
+    #[inline]
+    pub fn reserve(&mut self, n: usize) {
+        self.0.reserve(n);
+    }
+
+    /// Reserves space for exactly n more bytes
+    #[inline]
+    pub fn reserve_exact(&mut self, n: usize) {
+        self.0.reserve_exact(n);
+    }
+
 }
 
 impl<const N: usize> Default for TinyString<N> {
@@ -134,22 +188,18 @@ impl<const N: usize> Deref for TinyString<N> {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { str::from_utf8_unchecked(&self.0) }
+        self.as_str()
     }
 }
 
 impl<const N: usize> DerefMut for TinyString<N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { str::from_utf8_unchecked_mut(&mut self.0) }
+        self.as_mut_str()
     }
 }
 
-impl<S, const N: usize> From<S> for TinyString<N>
-where
-    S: AsRef<str>,
-{
-    fn from(value: S) -> Self {
-        let value = value.as_ref();
+impl<const N: usize> From<&str> for TinyString<N> {
+    fn from(value: &str) -> Self {
         let mut s = Self::with_capacity(value.len());
         s.push_str(value);
         s
@@ -168,6 +218,47 @@ impl<const N: usize> FromIterator<char> for TinyString<N> {
             s.push(c);
         }
         s
+    }
+}
+
+impl<const N: usize, S> PartialEq<S> for TinyString<N>
+where
+    S: AsRef<[u8]>
+{
+    fn eq(&self, other: &S) -> bool {
+        self.as_bytes() == other.as_ref()
+    }
+}
+
+impl<const N: usize> Eq for TinyString<N> { }
+
+impl<const N: usize> AsRef<[u8]> for TinyString<N> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl<const N: usize> AsRef<str> for TinyString<N> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<const N: usize> AsMut<str> for TinyString<N> {
+    fn as_mut(&mut self) -> &mut str {
+        self.as_mut_str()
+    }
+}
+
+impl<const N: usize> fmt::Debug for TinyString<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.bytes())
+    }
+}
+
+impl<const N: usize> Display for TinyString<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 
