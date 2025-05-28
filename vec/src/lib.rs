@@ -58,8 +58,7 @@
 //! space when moved to the heap
 
 #![allow(incomplete_features)]
-#![cfg_attr(feature = "default-size", feature(generic_const_exprs))]
-#![cfg_attr(feature = "use-specialization", feature(min_specialization))]
+#![cfg_attr(feature = "use-nightly-features", feature(min_specialization, slice_swap_unchecked, generic_const_exprs))]
 
 #![no_std]
 
@@ -202,10 +201,10 @@ pub const fn n_elements_for_stack<T>() -> usize {
 
 /// A dynamic array that can store a small amount of elements on the stack.
 pub struct TinyVec<T,
-    #[cfg(not(feature = "default-size"))]
+    #[cfg(not(feature = "use-nightly-features"))]
     const N: usize,
 
-    #[cfg(feature = "default-size")]
+    #[cfg(feature = "use-nightly-features")]
     const N: usize = { n_elements_for_stack::<T>() },
 > {
     inner: TinyVecInner<T, N>,
@@ -715,7 +714,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
     /// Removes the last element of this vector (if present)
-    pub fn pop(&mut self) -> Option<T> {
+    pub const fn pop(&mut self) -> Option<T> {
         if self.len.get() == 0 {
             None
         } else {
@@ -1023,12 +1022,8 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// # Safety
     /// index must be within bounds (less than self.len)
-    pub unsafe fn remove_unchecked(&mut self, index: usize) -> T {
-        debug_assert!(
-            index < self.len(),
-            "Index is >= than {}, this will trigger UB",
-            self.len()
-        );
+    pub const unsafe fn remove_unchecked(&mut self, index: usize) -> T {
+        debug_assert!(index < self.len());
 
         unsafe {
             self.len.sub(1);
@@ -1045,34 +1040,10 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// Removes the element at the given index.
     /// If the index is out of bounds, returns [None]
     #[inline]
-    pub fn remove(&mut self, index: usize) -> Option<T> {
+    pub const fn remove(&mut self, index: usize) -> Option<T> {
         if index >= self.len.get() { return None }
         /* SAFETY: We've just checked that index is < self.len */
         Some(unsafe { self.remove_unchecked(index) })
-    }
-
-    /// Swaps the elements on index a and b
-    ///
-    /// For a non-panicking version of this function,
-    /// see [swap_checked](Self::swap_checked)
-    ///
-    /// # Panics
-    /// If either a or b are out of bounds for [0, len)
-    ///
-    /// # Example
-    /// ```
-    /// use tiny_vec::TinyVec;
-    ///
-    /// let mut vec = TinyVec::from([1, 2, 3, 4, 5]);
-    ///
-    /// vec.swap(1, 3);
-    /// assert_eq!(vec.as_slice(), &[1, 4, 3, 2, 5]);
-    /// ```
-    #[inline]
-    pub fn swap(&mut self, a: usize, b: usize) {
-        self.swap_checked(a, b).unwrap_or_else(|n| {
-            panic!("Index {n} out of bounds")
-        });
     }
 
     /// Swaps the elements on index a and b
@@ -1091,12 +1062,12 @@ impl<T, const N: usize> TinyVec<T, N> {
         unsafe { self.swap_unchecked(a, b); }
         Ok(())
     }
-
     /// Swaps the elements on index a and b, without checking bounds
     ///
     /// # Safety
     /// The caller must ensure that both `a` and `b` are in bounds [0, len)
     /// For a checked version of this function, check [swap_checked](Self::swap_checked)
+    #[cfg(not(feature = "use-nightly-features"))]
     pub const unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
         unsafe {
             let ptr = self.as_mut_ptr();
@@ -1106,8 +1077,14 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    #[cfg(feature = "use-nightly-features")]
+    #[inline(always)]
+    const unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
+        unsafe { self.as_mut_slice().swap_unchecked(a, b); }
+    }
+
     /// Removes the element at the given index by swaping it with the last one
-    pub fn swap_remove(&mut self, index: usize) -> Option<T> {
+    pub const fn swap_remove(&mut self, index: usize) -> Option<T> {
         if index >= self.len.get() {
             None
         } else if index == self.len.get() - 1 {
@@ -1312,14 +1289,14 @@ impl<T, const N: usize> Extend<T> for TinyVec<T, N> {
     }
 }
 
-#[cfg(feature = "use-specialization")]
+#[cfg(feature = "use-nightly-features")]
 macro_rules! maybe_default {
     ($($t:tt)*) => {
         default $($t)*
     };
 }
 
-#[cfg(not(feature = "use-specialization"))]
+#[cfg(not(feature = "use-nightly-features"))]
 macro_rules! maybe_default {
     ($($t:tt)*) => {
         $($t)*
@@ -1405,7 +1382,7 @@ macro_rules! impl_from_call_w_copy_spec {
                 );
             }
 
-            #[cfg(feature = "use-specialization")]
+            #[cfg(feature = "use-nightly-features")]
             impl<T: Clone + Copy, const N: usize, $( $($im)* )? > From<$t> for TinyVec<T, N> {
                 fn from(value: $t) -> Self {
                     Self:: $copy_call (value)
@@ -1464,7 +1441,7 @@ impl<T: Clone, const N: usize> Clone for TinyVec<T, N> {
     );
 }
 
-#[cfg(feature = "use-specialization")]
+#[cfg(feature = "use-nightly-features")]
 impl<T: Clone + Copy, const N: usize> Clone for TinyVec<T, N> {
     fn clone(&self) -> Self {
         Self::from_slice_copied(self.as_slice())

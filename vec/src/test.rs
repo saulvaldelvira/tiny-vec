@@ -95,7 +95,7 @@ macro_rules! panic_test {
 
 panic_test!(
     swap_out_of_bounds,
-    "Index 2 out of bounds",
+    "index out of bounds: the len is 2 but the index is 2",
     TinyVec::from([1, 2]).swap(2, 0)
 );
 

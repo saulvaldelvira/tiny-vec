@@ -11,5 +11,4 @@ description = "Small vector optimization"
 
 [features]
 default = []
-use-specialization = []
-default-size = []
+use-nightly-features = []

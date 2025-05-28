@@ -16,4 +16,4 @@ version = ">=0.1.0"
 
 [features]
 default = []
-use-specialization = ["tiny-vec/use-specialization"]
+use-nightly-features  = ["tiny-vec/use-nightly-features"]

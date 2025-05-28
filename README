@@ -16,19 +16,18 @@ Or browse it online at
 - https://docs.rs/tiny-str
 
 == Features ==
-These features are only usable on nightly compilers, that's why they are
-disabled by default.
 
-use-specialization
-    Enables specialization for trait impls
-    For example, From<&[T]> where T is Copy can be optimized as a ptr::copy.
-    We can specialize that case, while still allowing From<&[T]> for the
-    types that only implement Clone.
+use-nightly-features: (default: off, requires nightly)
+Enables the following functionality
 
-default-size
-    Adds the option to not specify a capacity for the stack buffer, which
-    will default to the maximun capacity that fits in the RawVec's space.
-    This default size causes no memory waste when switching to the heap.
+- Specialization for trait impls
+  For example, From<&[T]> where T is Copy can be optimized as a ptr::copy.
+  We can specialize that case, while still allowing From<&[T]> for the
+  types that only implement Clone.
+
+- Adds the option to not specify a capacity for the stack buffer, which
+  will default to the maximun capacity that fits in the RawVec's space.
+  This default size causes no memory waste when switching to the heap.
 
 == Contributing ==
 You can send patches to <saul@saulv.es>, or a pull request on the github
