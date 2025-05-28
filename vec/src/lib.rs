@@ -214,11 +214,15 @@ pub struct TinyVec<T,
 
 impl<T, const N: usize> TinyVec<T, N> {
 
-    unsafe fn switch_to_heap(&mut self, n: usize) {
+    unsafe fn switch_to_heap(&mut self, n: usize, exact: bool) {
         debug_assert!(self.lives_on_stack());
 
         let mut vec = RawVec::new();
-        vec.expand_if_needed(0, self.len.get() + n);
+        if exact {
+            vec.expand_if_needed_exact(0, self.len.get() + n);
+        } else {
+            vec.expand_if_needed(0, self.len.get() + n);
+        }
         unsafe {
             let src = self.inner.as_ptr_stack();
             let dst = vec.ptr.as_ptr();
@@ -577,15 +581,56 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Reserves space for, at least, n elements
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 5>::new();
+    ///
+    /// assert_eq!(vec.capacity(), 5);
+    /// assert!(vec.lives_on_stack());
+    /// vec.reserve(10);
+    /// assert!(vec.capacity() >= 10);
+    /// assert!(!vec.lives_on_stack());
+    /// ```
     pub fn reserve(&mut self, n: usize) {
         if self.len.is_stack() {
             if self.len.get() + n > N {
-                unsafe { self.switch_to_heap(n); }
+                unsafe { self.switch_to_heap(n, false); }
             }
         } else {
             unsafe {
                 self.inner.raw.expand_if_needed(self.len.get(), n);
             }
+        }
+    }
+
+    /// Reserves space for n more elements, but unline
+    /// [reserve](Self::reserve), this function doesn't over-allocate.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 5>::new();
+    ///
+    /// assert_eq!(vec.capacity(), 5);
+    /// assert!(vec.lives_on_stack());
+    /// vec.reserve_exact(10);
+    /// assert_eq!(vec.capacity(), 10);
+    /// assert!(!vec.lives_on_stack());
+    /// ```
+    pub fn reserve_exact(&mut self, n: usize) {
+        if self.len.is_stack() {
+            if self.len.get() + n > N {
+                unsafe { self.switch_to_heap(n, true); }
+            }
+        } else {
+            let vec = unsafe { &mut self.inner.raw };
+            let len = self.len.get();
+            let new_cap = vec.cap.max(len + n);
+            vec.expand_if_needed_exact(len, new_cap);
         }
     }
 
@@ -729,7 +774,130 @@ impl<T, const N: usize> TinyVec<T, N> {
         self.len.add(1);
     }
 
-    /// Resizes the vector, cloning elem to fill any possible new slot
+    /// Inserts all the elements of the given slice into the
+    /// vector, at the given index
+    ///
+    /// This function clones the elements in the slice.
+    ///
+    /// If the type T is [Copy], the [insert_slice_copied]
+    /// function is a more optimized alternative
+    ///
+    /// # Errors
+    /// If the index is out of bounds, returns the slice as an [Err] variant
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from(["abc".to_string(), "ghi".to_string()]);
+    /// vec.insert_slice(1, &[
+    ///     "__".to_string(),
+    ///     "def".to_string(),
+    ///     "__".to_string(),
+    /// ]);
+    ///
+    /// assert_eq!(vec.as_slice(), &["abc", "__", "def", "__", "ghi"]);
+    /// ```
+    /// [insert_slice_copied]: Self::insert_slice_copied
+    pub fn insert_slice<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]>
+    where
+        T: Clone
+    {
+        self.insert_iter(index, elems.iter().cloned()).map_err(|_| elems)
+    }
+
+    /// Inserts all the elements of the given slice into the
+    /// vector, at the given index
+    ///
+    /// This function copies the slice into the buffer, which
+    /// is faster that calling [clone]
+    /// That's why it requires T to implement [Copy].
+    ///
+    /// For a cloning alternative, use [insert_slice]
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4]);
+    /// vec.insert_slice_copied(2, &[-1, -2, -3]);
+    /// assert_eq!(vec.as_slice(), &[1, 2, -1, -2, -3, 3, 4]);
+    /// ```
+    /// [clone]: Clone::clone
+    /// [insert_slice]: Self::insert_slice
+    pub fn insert_slice_copied<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]>
+    where
+        T: Copy
+    {
+        if index > self.len() {
+            return Err(elems)
+        }
+
+        let len = elems.len();
+        self.reserve(len);
+        unsafe {
+            let ptr = self.as_mut_ptr();
+            ptr::copy(
+                ptr.add(index),
+                ptr.add(index + len),
+                self.len.get() - index,
+            );
+            ptr::copy_nonoverlapping(
+                elems.as_ptr(),
+                ptr.add(index),
+                len
+            );
+        }
+        self.len.add(len);
+
+        Ok(())
+    }
+
+    /// Inserts all the elements on the given iterator at the given index
+    ///
+    /// # Errors
+    /// If the index is out of bounds, returns the passed iterator, wrapped
+    /// on an [Err] variant.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4]);
+    ///
+    /// vec.insert_iter(2, (-3..-1));
+    /// assert_eq!(vec.as_slice(), &[1, 2, -3, -2, 3, 4]);
+    /// ```
+    pub fn insert_iter<I>(&mut self, index: usize, it: I) -> Result<(), I>
+    where
+        I: IntoIterator<Item = T>,
+        <I as IntoIterator>::IntoIter: ExactSizeIterator,
+    {
+        if index > self.len() {
+            return Err(it);
+        }
+
+        let it = it.into_iter();
+        let len = it.len();
+        self.reserve(len);
+        unsafe {
+            let ptr = self.as_mut_ptr();
+            ptr::copy(
+                ptr.add(index),
+                ptr.add(index + len),
+                self.len.get() - index,
+            );
+            let mut ptr = ptr.add(index);
+            for elem in it {
+                ptr.write(elem);
+                ptr = ptr.add(1);
+                self.len.add(1);
+            }
+        }
+        Ok(())
+    }
+
+    /// Resizes the vector, cloning elem to fill any possible new slots
     ///
     /// If new_len < self.len, behaves like [truncate](Self::truncate)
     ///
@@ -772,7 +940,9 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Resizes the vector, using the given generator closure
-    /// to fill any possible new slot
+    /// to fill any possible new slots
+    ///
+    /// If new_len < self.len, behaves like [truncate](Self::truncate)
     ///
     /// # Example
     /// ```
@@ -846,21 +1016,6 @@ impl<T, const N: usize> TinyVec<T, N> {
                 ptr.write_bytes(0, n);
             }
             self.len.add(n);
-        }
-    }
-
-    /// Reserves space for n more elements, but unline
-    /// [reserve](Self::reserve), this function doesn't over-allocate.
-    pub fn reserve_exact(&mut self, n: usize) {
-        if self.len.is_stack() {
-            if self.len.get() + n > N {
-                unsafe { self.switch_to_heap(n); }
-            }
-        } else {
-            let vec = unsafe { &mut self.inner.raw };
-            let len = self.len.get();
-            let new_cap = vec.cap.max(len + n);
-            vec.expand_if_needed_exact(len, new_cap);
         }
     }
 
@@ -1096,7 +1251,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         let mut vec = ManuallyDrop::new(self);
 
         if vec.lives_on_stack() {
-            unsafe { vec.switch_to_heap(0) };
+            unsafe { vec.switch_to_heap(0, true) };
         }
         debug_assert!(!vec.lives_on_stack());
 
@@ -1126,7 +1281,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         let mut vec = ManuallyDrop::new(self);
 
         if vec.lives_on_stack() {
-            unsafe { vec.switch_to_heap(0) };
+            unsafe { vec.switch_to_heap(0, false) };
         }
 
         let ptr = vec.as_mut_ptr();
