@@ -71,3 +71,31 @@ fn macro_test() {
     let tv: TinyVec<i32, 5> = tinyvec![10; 20];
     assert_eq!(tv.len(), 20);
 }
+
+#[test]
+fn swap_test() {
+    let mut tv = TinyVec::from([1, 2, 3, 4, 5]);
+    tv.swap(1, 3);
+    assert_eq!(tv.as_slice(), &[1, 4, 3, 2, 5]);
+    tv.swap(1, 1);
+    assert_eq!(tv.as_slice(), &[1, 4, 3, 2, 5]);
+    tv.swap_checked(3, 1).unwrap();
+    assert_eq!(tv.as_slice(), &[1, 2, 3, 4, 5]);
+}
+
+macro_rules! panic_test {
+    ($n:ident, $msg:literal, $b:expr) => {
+        #[test]
+        #[should_panic(expected = $msg)]
+        fn $n() {
+            $b;
+        }
+    };
+}
+
+panic_test!(
+    swap_out_of_bounds,
+    "Index 2 out of bounds",
+    TinyVec::from([1, 2]).swap(2, 0)
+);
+

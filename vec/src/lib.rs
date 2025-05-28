@@ -215,6 +215,8 @@ pub struct TinyVec<T,
 impl<T, const N: usize> TinyVec<T, N> {
 
     unsafe fn switch_to_heap(&mut self, n: usize) {
+        debug_assert!(self.lives_on_stack());
+
         let mut vec = RawVec::new();
         vec.expand_if_needed(0, self.len.get() + n);
         unsafe {
@@ -227,6 +229,8 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     unsafe fn switch_to_stack(&mut self) {
+        debug_assert!(!self.lives_on_stack());
+
         let mut rv = unsafe { self.inner.raw };
 
         let stack = [ const { MaybeUninit::uninit() }; N ];
@@ -394,6 +398,20 @@ impl<T, const N: usize> TinyVec<T, N> {
         Self { inner, len }
     }
 
+    /// Creates a TinyVec from a boxed slice of T
+    pub fn from_boxed_slice(boxed: Box<[T]>) -> Self {
+        let len = boxed.len();
+        let ptr = Box::into_raw(boxed);
+        let ptr = unsafe { NonNull::new_unchecked(ptr as *mut T) };
+
+        let raw = RawVec { ptr, cap: len };
+
+        Self {
+            inner: TinyVecInner { raw },
+            len: Length::new_heap(len)
+        }
+    }
+
     /// Builds a TinyVec from a TinyVec with a different capacity generic parameter
     ///
     /// # Example
@@ -413,11 +431,26 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// ```
     pub fn from_tiny_vec<const M: usize>(mut vec: TinyVec<T, M>) -> Self {
         let len = vec.len();
+        if len > N && len > M {
+            /* If the buffer must be on the heap on both src and dest,
+             * just copy the RawVec from vec to Self */
+            let tv = Self {
+                len: Length::new_heap(len),
+                inner: TinyVecInner {
+                    raw: unsafe { vec.inner.raw }
+                }
+            };
+            mem::forget(vec);
+            return tv
+        }
+
         let mut tv = Self::with_capacity(len);
         let src = vec.as_ptr();
         let dst = tv.as_mut_ptr();
         unsafe {
-            ptr::copy(src, dst, len);
+            /* SAFETY: src points to vec, and dst to tv. They are two different
+             * objects, so their buffers can't overap */
+            ptr::copy_nonoverlapping(src, dst, len);
             vec.set_len(0);
             tv.set_len(len);
         }
@@ -520,7 +553,9 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// Gets a mutable pointer to the vec's buffer as a [NonNull]
     #[inline]
     pub const fn as_non_null(&mut self) -> NonNull<T> {
+        debug_assert!(!self.as_mut_ptr().is_null());
         unsafe {
+            /* SAFETY: as_mut_ptr should never return a null ptr */
             NonNull::new_unchecked(self.as_mut_ptr())
         }
     }
@@ -545,9 +580,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     pub fn reserve(&mut self, n: usize) {
         if self.len.is_stack() {
             if self.len.get() + n > N {
-                unsafe {
-                    self.switch_to_heap(n);
-                }
+                unsafe { self.switch_to_heap(n); }
             }
         } else {
             unsafe {
@@ -557,6 +590,23 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Appends an element to the back of the vector
+    /// This operation is O(1), if no resize takes place.
+    /// If the buffer needs to be resized, it has an O(n)
+    /// time complexity.
+    ///
+    /// See also: [push_within_capacity](Self::push_within_capacity)
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 5>::from(&[1, 2, 3, 4]);
+    ///
+    /// vec.push(5); // No resize. O(1)
+    /// vec.push(6); // Resize, must realloc. O(n)
+    ///
+    /// assert_eq!(vec.as_slice(), &[1, 2, 3, 4, 5, 6]);
+    /// ```
     #[inline]
     pub fn push(&mut self, elem: T) {
         self.reserve(1);
@@ -570,6 +620,21 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// The caller must ensure that there's enought capacity
     /// for this element.
     /// This means that [Self::len] < [Self::capacity]
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 10>::with_capacity(10);
+    ///
+    /// // We've allocated a TinyVec with an initial capacity of 10.
+    /// // We can skip the bounds checking, since there will be room
+    /// // for all the elements on the iterator
+    /// for n in 0..10 {
+    ///     unsafe { vec.push_unchecked(n); }
+    /// }
+    /// assert_eq!(vec.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    /// ```
     pub unsafe fn push_unchecked(&mut self, elem: T) {
         unsafe {
             let dst = self.as_mut_ptr().add(self.len.get());
@@ -580,7 +645,22 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Try to push an element inside the vector, only if
     /// there's room for it. If the push would've caused a
-    /// reallocation of the buffer, returns the value.
+    /// reallocation of the buffer, returns the value wrapped
+    /// on an [Err] variant.
+    ///
+    /// This operation has O(1) time complexity in all cases.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 5>::from(&[1, 2, 3, 4]);
+    ///
+    /// assert!(vec.push_within_capacity(5).is_ok());
+    ///
+    /// // No room left, the value is returned
+    /// assert_eq!(vec.push_within_capacity(6), Err(6));
+    /// ```
     pub fn push_within_capacity(&mut self, val: T) -> Result<(),T> {
         if self.len.get() < self.capacity() {
             unsafe { self.push_unchecked(val); }
@@ -605,6 +685,24 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Inserts an element in the given index position
+    ///
+    /// This operation has a worst case time complexity of O(n),
+    /// since it needs to move elements on range [index, len) one
+    /// position to the right.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 10>::from(&[1, 2, 3, 4]);
+    ///
+    /// vec.insert(2, -1);
+    /// assert_eq!(vec.as_slice(), &[1, 2, -1, 3, 4]);
+    ///
+    /// // An insert on vec.len() behaves like a push
+    /// vec.insert(vec.len(), 5);
+    /// assert_eq!(vec.as_slice(), &[1, 2, -1, 3, 4, 5]);
+    /// ```
     pub fn insert(&mut self, index: usize, elem: T) -> Result<(),T> {
         if index > self.len.get() {
             return Err(elem)
@@ -613,31 +711,46 @@ impl<T, const N: usize> TinyVec<T, N> {
         Ok(())
     }
 
-    /// # Safety
+    /// Like [insert](Self::insert), but without bounds checking
     ///
-    /// The index should be valid.
+    /// # Safety
+    /// The index should be <= self.len
     pub unsafe fn insert_unckecked(&mut self, index: usize, elem: T) {
         self.reserve(1);
         unsafe {
+            let ptr = self.as_mut_ptr();
             ptr::copy(
-                self.as_ptr().add(index),
-                self.as_mut_ptr().add(index + 1),
+                ptr.add(index),
+                ptr.add(index + 1),
                 self.len.get() - index,
             );
-            self.as_mut_ptr().add(index).write(elem);
+            ptr.add(index).write(elem);
         }
         self.len.add(1);
     }
 
     /// Resizes the vector, cloning elem to fill any possible new slot
-    pub fn resize(&mut self, cap: usize, elem: T)
+    ///
+    /// If new_len < self.len, behaves like [truncate](Self::truncate)
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 5>::new();
+    ///
+    /// vec.resize(5, 0);
+    /// assert_eq!(vec.len(), 5);
+    /// assert_eq!(vec.as_slice(), &[0, 0, 0, 0, 0]);
+    /// ```
+    pub fn resize(&mut self, new_len: usize, elem: T)
     where
         T: Clone
     {
-        if cap < self.len() {
-            self.truncate(cap);
+        if new_len < self.len() {
+            self.truncate(new_len);
         } else {
-            let n = cap - self.len();
+            let n = new_len - self.len();
             self.reserve(n);
 
             unsafe {
@@ -654,7 +767,6 @@ impl<T, const N: usize> TinyVec<T, N> {
                     ptr::write(ptr, elem);
                     len.add(1);
                 }
-
             }
         }
     }
@@ -700,13 +812,13 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
-    /// Resizes the vector, initializing the new elements to 0
+    /// Resizes the vector, initializing the new memory to 0
     ///
     /// # Safety
     /// The caller must ensure that an all-zero byte representation
     /// is valid for T.
     ///
-    /// If [mem::zeroed] is valid for T, this function is valid too
+    /// If [mem::zeroed] is valid for T, this function is valid too.
     ///
     /// # Example
     /// ```
@@ -737,7 +849,8 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
-    /// Reserves space for exactly n elements more
+    /// Reserves space for n more elements, but unline
+    /// [reserve](Self::reserve), this function doesn't over-allocate.
     pub fn reserve_exact(&mut self, n: usize) {
         if self.len.is_stack() {
             if self.len.get() + n > N {
@@ -751,8 +864,10 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    /// Like [remove](Self::remove), but without bounds checking
+    ///
     /// # Safety
-    /// Index should be < [TinyVec::len]\()
+    /// index must be within bounds (less than self.len)
     pub unsafe fn remove_unchecked(&mut self, index: usize) -> T {
         debug_assert!(
             index < self.len(),
@@ -772,17 +887,32 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    /// Removes the element at the given index.
+    /// If the index is out of bounds, returns [None]
     #[inline]
     pub fn remove(&mut self, index: usize) -> Option<T> {
         if index >= self.len.get() { return None }
-        /* Safety: We've just checked that index is < self.len */
+        /* SAFETY: We've just checked that index is < self.len */
         Some(unsafe { self.remove_unchecked(index) })
     }
 
     /// Swaps the elements on index a and b
     ///
+    /// For a non-panicking version of this function,
+    /// see [swap_checked](Self::swap_checked)
+    ///
     /// # Panics
     /// If either a or b are out of bounds for [0, len)
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4, 5]);
+    ///
+    /// vec.swap(1, 3);
+    /// assert_eq!(vec.as_slice(), &[1, 4, 3, 2, 5]);
+    /// ```
     #[inline]
     pub fn swap(&mut self, a: usize, b: usize) {
         self.swap_checked(a, b).unwrap_or_else(|n| {
@@ -793,7 +923,8 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// Swaps the elements on index a and b
     ///
     /// # Errors
-    /// If an index is out of bounds for [0, len), return an [Err] variant.
+    /// If an index is out of bounds for [0, len),
+    /// returns that index inside an [Err] variant.
     pub const fn swap_checked(&mut self, a: usize, b: usize) -> Result<(),usize> {
         if a >= self.len.get() {
             return Err(a)
@@ -801,6 +932,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         if b >= self.len.get() {
             return Err(b)
         };
+        /* SAFETY: a and b are in bounds */
         unsafe { self.swap_unchecked(a, b); }
         Ok(())
     }
@@ -812,8 +944,9 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// For a checked version of this function, check [swap_checked](Self::swap_checked)
     pub const unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
         unsafe {
-            let ap = self.as_mut_ptr().add(a);
-            let bp = self.as_mut_ptr().add(b);
+            let ptr = self.as_mut_ptr();
+            let ap = ptr.add(a);
+            let bp = ptr.add(b);
             ptr::swap(ap, bp);
         }
     }
@@ -825,6 +958,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         } else if index == self.len.get() - 1 {
             self.pop()
         } else {
+            /* SAFETY: index in < self.len */
             unsafe { self.swap_unchecked(index, self.len.get() - 1) }
             self.pop()
         }
@@ -835,6 +969,8 @@ impl<T, const N: usize> TinyVec<T, N> {
     pub fn shrink_to_fit(&mut self) {
         if self.len.is_stack() { return }
 
+        /* SAFETY: It's safe to assume that we are on the heap,
+         * because of the check above */
         if self.len.get() <= N {
             unsafe { self.switch_to_stack(); }
         } else {
@@ -858,6 +994,17 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Reduces the length in the vector, dropping the elements
     /// in range [new_len, old_len)
+    ///
+    /// If the new_len is >= old_len, this function does nothing.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4, 5]);
+    /// vec.truncate(3);
+    /// assert_eq!(vec.as_slice(), &[1, 2, 3]);
+    /// ```
     pub fn truncate(&mut self, len: usize) {
         if len < self.len.get() {
             for e in &mut self[len..] {
@@ -871,22 +1018,49 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// This function clones the elements in the slice.
     ///
-    /// If the type T is [Copy], the [extend_from_slice_copied](Self::extend_from_slice_copied)
+    /// If the type T is [Copy], the [extend_from_slice_copied]
     /// function is a more optimized alternative
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<String, 5>::new();
+    /// vec.extend_from_slice(&[
+    ///     "abc".to_string(),
+    ///     "def".to_string(),
+    ///     "__".to_string(),
+    /// ]);
+    ///
+    /// assert_eq!(vec.as_slice(), &["abc", "def", "__"]);
+    /// ```
+    /// [extend_from_slice_copied]: Self::extend_from_slice_copied
     pub fn extend_from_slice(&mut self, s: &[T])
     where
         T: Clone
     {
-        self.extend(s.iter().map(Clone::clone));
+        self.extend(s.iter().cloned());
     }
 
     /// Copies all the elements of the given slice into the vector
     ///
     /// This function copies the slice into the buffer, which
-    /// is faster that calling [clone](Clone::clone).
+    /// is faster that calling [clone]
     /// That's why it requires T to implement [Copy].
     ///
-    /// For a cloning alternative, use [extend_from_slice](Self::extend_from_slice)
+    /// For a cloning alternative, use [extend_from_slice]
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 5>::new();
+    /// vec.extend_from_slice_copied(&[1, 2, 3, 4]);
+    ///
+    /// assert_eq!(vec.as_slice(), &[1, 2, 3, 4]);
+    /// ```
+    /// [clone]: Clone::clone
+    /// [extend_from_slice]: Self::extend_from_slice
     pub fn extend_from_slice_copied(&mut self, s: &[T])
     where
         T: Copy
@@ -1047,10 +1221,51 @@ impl<T, const N: usize> Drop for TinyVec<T, N> {
     }
 }
 
-impl<T, const N: usize> From<Vec<T>> for TinyVec<T, N> {
-    fn from(value: Vec<T>) -> Self {
-        Self::from_vec(value)
-    }
+macro_rules! impl_from_call {
+    ($( $({$($im:tt)*})? $t:ty => $c:ident ),* $(,)?) => {
+       $(
+            impl<T, const N: usize, $($($im)*)?> From<$t> for TinyVec<T, N> {
+                fn from(value: $t) -> Self {
+                    Self:: $c (value)
+                }
+            }
+       )*
+    };
+}
+
+impl_from_call! {
+    Vec<T> => from_vec,
+    Box<[T]> => from_boxed_slice,
+    [T; N] => from_array_eq_size,
+}
+
+macro_rules! impl_from_call_w_copy_spec {
+    ( $( $({$($im:tt)*})? $t:ty => $def_call:ident, $copy_call:ident ;)* ) => {
+       $(
+            impl<T: Clone, const N: usize, $( $($im)* )? > From<$t> for TinyVec<T, N> {
+                maybe_default!(
+                    fn from(value: $t) -> Self {
+                        Self:: $def_call (value)
+                    }
+                );
+            }
+
+            #[cfg(feature = "use-specialization")]
+            impl<T: Clone + Copy, const N: usize, $( $($im)* )? > From<$t> for TinyVec<T, N> {
+                fn from(value: $t) -> Self {
+                    Self:: $copy_call (value)
+                }
+            }
+       )*
+    };
+}
+
+impl_from_call_w_copy_spec! {
+    &[T] => from_slice, from_slice_copied;
+    &mut [T] => from_slice, from_slice_copied;
+
+    { const M: usize } &[T; M] => from_slice, from_slice_copied;
+    { const M: usize } &mut [T; M] => from_slice, from_slice_copied;
 }
 
 impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
@@ -1083,57 +1298,6 @@ impl<T, const N: usize> AsRef<[T]> for TinyVec<T, N> {
 impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
     fn as_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
-    }
-}
-
-impl<T: Clone, const N: usize> From<&[T]> for TinyVec<T, N> {
-    maybe_default!(
-        fn from(value: &[T]) -> Self {
-            Self::from_slice(value)
-        }
-    );
-}
-
-#[cfg(feature = "use-specialization")]
-impl<T: Clone + Copy, const N: usize> From<&[T]> for TinyVec<T, N> {
-    fn from(value: &[T]) -> Self {
-        Self::from_slice_copied(value)
-    }
-}
-
-impl<T: Clone, const N: usize> From<&mut [T]> for TinyVec<T, N> {
-    maybe_default!(
-        fn from(value: &mut [T]) -> Self {
-            Self::from_slice(value)
-        }
-    );
-}
-
-#[cfg(feature = "use-specialization")]
-impl<T: Clone + Copy, const N: usize> From<&mut [T]> for TinyVec<T, N> {
-    fn from(value: &mut [T]) -> Self {
-        Self::from_slice_copied(value)
-    }
-}
-
-impl<T, const N: usize> From<[T; N]> for TinyVec<T, N> {
-    fn from(value: [T; N]) -> Self {
-        Self::from_array_eq_size(value)
-    }
-}
-
-impl<T: Clone, const N: usize, const M: usize> From<&[T; M]> for TinyVec<T, N> {
-    maybe_default!(
-        fn from(value: &[T; M]) -> Self {
-            Self::from_slice(value)
-        }
-    );
-}
-
-#[cfg(feature = "use-specialization")]
-impl<T: Clone + Copy, const N: usize, const M: usize> From<&[T; M]> for TinyVec<T, N> {
-    fn from(value: &[T; M]) -> Self {
-        Self::from_slice_copied(value as &[T])
     }
 }
 
