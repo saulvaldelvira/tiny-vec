@@ -1304,6 +1304,7 @@ macro_rules! maybe_default {
 }
 
 impl<T, const N: usize> Default for TinyVec<T, N> {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -1311,7 +1312,7 @@ impl<T, const N: usize> Default for TinyVec<T, N> {
 
 impl<T: fmt::Debug, const N: usize> fmt::Debug for TinyVec<T, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self[..], f)
+        fmt::Debug::fmt(self.as_slice(), f)
     }
 }
 
@@ -1329,12 +1330,14 @@ impl<T: PartialEq, const N: usize> Eq for TinyVec<T, N> {}
 impl<T, const N: usize> Deref for TinyVec<T, N> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
 
 impl<T, const N: usize> DerefMut for TinyVec<T, N> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
@@ -1343,7 +1346,7 @@ impl<T, const N: usize> DerefMut for TinyVec<T, N> {
 impl<T, const N: usize> Drop for TinyVec<T, N> {
     fn drop(&mut self) {
         if mem::needs_drop::<T>() {
-            for e in self.deref_mut() {
+            for e in self.as_mut_slice() {
                 unsafe { ptr::drop_in_place(e) };
             }
         }
@@ -1416,18 +1419,21 @@ impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
 }
 
 impl<T, const N: usize> From<TinyVec<T, N>> for Vec<T> {
+    #[inline]
     fn from(value: TinyVec<T, N>) -> Self {
         value.into_vec()
     }
 }
 
 impl<T, const N: usize> AsRef<[T]> for TinyVec<T, N> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
+    #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
