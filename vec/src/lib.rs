@@ -59,6 +59,7 @@
 
 #![allow(incomplete_features)]
 #![cfg_attr(feature = "use-nightly-features", feature(min_specialization, slice_swap_unchecked, generic_const_exprs))]
+#![cfg_attr(feature = "use-nightly-features", feature(extend_one, extend_one_unchecked))]
 
 #![no_std]
 
@@ -1286,6 +1287,22 @@ impl<T, const N: usize> Extend<T> for TinyVec<T, N> {
         for elem in iter {
             unsafe { self.push_unchecked(elem); }
         }
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    fn extend_one(&mut self, item: T) {
+        self.push(item);
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    fn extend_reserve(&mut self, additional: usize) {
+        self.reserve(additional);
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    unsafe fn extend_one_unchecked(&mut self, item: T) {
+        /* SAFETY: The caller guarantees that self.len < self.capacity */
+        unsafe { self.push_unchecked(item); }
     }
 }
 

@@ -48,6 +48,8 @@
 
 #![no_std]
 
+#![cfg_attr(feature = "use-nightly-features", feature(extend_one))]
+
 use core::fmt::{self, Display};
 use core::ops::{Deref, DerefMut};
 use core::str::{self, Utf8Error};
@@ -274,16 +276,28 @@ impl<const N: usize> From<TinyString<N>> for Box<str> {
 
 impl<const N: usize> FromIterator<char> for TinyString<N> {
     fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
+        let mut s = Self::new();
+        s.extend(iter);
+        s
+    }
+}
+
+impl<const N: usize> Extend<char> for TinyString<N> {
+    fn extend<T: IntoIterator<Item = char>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         let cap = match iter.size_hint() {
             (_, Some(n)) => n,
             (n, _) => n,
         };
-        let mut s = TinyString::with_capacity(cap);
+        self.reserve(cap);
         for c in iter {
-            s.push(c);
+            self.push(c);
         }
-        s
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    fn extend_one(&mut self, item: char) {
+        self.push(item);
     }
 }
 
