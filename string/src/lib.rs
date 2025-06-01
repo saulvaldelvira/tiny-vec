@@ -59,6 +59,7 @@ use alloc::vec::Vec;
 use alloc::boxed::Box;
 
 use tiny_vec::TinyVec;
+pub mod iter;
 
 const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
 

@@ -76,6 +76,8 @@ use core::slice;
 mod raw;
 use raw::RawVec;
 
+pub mod iter;
+
 union TinyVecInner<T, const N: usize> {
     stack: ManuallyDrop<[MaybeUninit<T>; N]>,
     raw: RawVec<T>,

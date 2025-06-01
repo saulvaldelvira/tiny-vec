@@ -99,3 +99,20 @@ panic_test!(
     TinyVec::from([1, 2]).swap(2, 0)
 );
 
+#[test]
+fn iter_test() {
+    let tv = TinyVec::from([0, 1, 2, 3, 4]);
+
+    let mut iter = tv.into_iter();
+
+    assert_eq!(iter.len(), 5);
+
+    assert_eq!(iter.next(), Some(0));
+    assert_eq!(iter.next(), Some(1));
+    assert_eq!(iter.next(), Some(2));
+
+    assert_eq!(iter.len(), 2);
+
+    assert_eq!(iter.next_back(), Some(4));
+    assert_eq!(iter.next(), Some(3));
+}

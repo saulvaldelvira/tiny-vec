@@ -11,6 +11,4 @@ fn simple() {
     }
 
     s.push_str("hellooo");
-
-
 }
