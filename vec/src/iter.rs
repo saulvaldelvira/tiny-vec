@@ -3,6 +3,7 @@
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
+use core::num::NonZero;
 use core::ptr;
 
 use alloc::slice;
@@ -78,6 +79,44 @@ impl<T, const N: usize> Drop for TinyVecIter<T, N> {
     }
 }
 
+impl<T, const N: usize> TinyVecIter<T, N> {
+
+    #[inline(always)]
+    fn _advance_by(&mut self, n: usize) -> Result<(), NonZero<usize>> {
+        if n > self.len {
+            /* SAFTEY: n is strictly greater that self.len, so
+             * (n - self.len) will always be greater than zero */
+            return Err(unsafe { NonZero::new_unchecked(n - self.len) })
+        }
+        self.len -= n;
+        self.start += n;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn _advance_back_by(&mut self, n: usize) -> Result<(), NonZero<usize>> {
+        if n > self.len {
+            /* SAFTEY: n is strictly greater that self.len, so
+             * (n - self.len) will always be greater than zero */
+            return Err(unsafe { NonZero::new_unchecked(n - self.len) })
+        }
+        self.len -= n;
+        Ok(())
+    }
+
+    #[cfg(not(feature = "use-nightly-features"))]
+    #[inline(always)]
+    fn advance_back_by(&mut self, n: usize) -> Result<(), NonZero<usize>> {
+        self._advance_back_by(n)
+    }
+
+    #[cfg(not(feature = "use-nightly-features"))]
+    #[inline(always)]
+    fn advance_by(&mut self, n: usize) -> Result<(), NonZero<usize>> {
+        self._advance_by(n)
+    }
+}
+
 impl<T, const N: usize> Iterator for TinyVecIter<T, N> {
     type Item = T;
 
@@ -100,6 +139,16 @@ impl<T, const N: usize> Iterator for TinyVecIter<T, N> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.len, Some(self.len))
     }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.advance_by(n).ok()?;
+        self.next()
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    fn advance_by(&mut self, n: usize) -> Result<(), NonZero<usize>> {
+        self._advance_by(n)
+    }
 }
 
 impl<T, const N: usize> DoubleEndedIterator for TinyVecIter<T, N> {
@@ -116,6 +165,16 @@ impl<T, const N: usize> DoubleEndedIterator for TinyVecIter<T, N> {
             };
             Some(e)
         }
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        self.advance_back_by(n).ok()?;
+        self.next_back()
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    fn advance_back_by(&mut self, n: usize) -> Result<(), NonZero<usize>> {
+        self._advance_back_by(n)
     }
 }
 
@@ -144,5 +203,24 @@ impl<T, const N: usize> IntoIterator for TinyVec<T, N> {
         };
 
         TinyVecIter { start: 0, len, buf, _marker: PhantomData }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::iter_nth_zero)]
+mod test {
+    use crate::TinyVec;
+
+    #[test]
+    fn nth() {
+        let mut it = TinyVec::from([1, 2, 3, 4, 5, 6, 7]).into_iter();
+
+        assert_eq!(Some(3), it.nth(2));
+        assert_eq!(Some(4), it.nth(0));
+
+        assert_eq!(Some(6), it.nth_back(1));
+        assert_eq!(Some(5), it.nth_back(0));
+
+        assert_eq!(it.len(), 0);
     }
 }
