@@ -78,6 +78,7 @@ mod raw;
 use raw::RawVec;
 
 pub mod iter;
+pub mod drain;
 
 union TinyVecInner<T, const N: usize> {
     stack: ManuallyDrop<[MaybeUninit<T>; N]>,
@@ -88,12 +89,12 @@ impl<T, const N: usize> TinyVecInner<T, N> {
 
     #[inline(always)]
     const unsafe fn as_ptr_stack(&self) -> *const T {
-        unsafe { &self.stack as *const _ as *const T }
+        unsafe { &raw const self.stack as *const T }
     }
 
     #[inline(always)]
     const unsafe fn as_ptr_stack_mut(&mut self) -> *mut T {
-        unsafe { &mut self.stack as *mut _ as *mut T }
+        unsafe { &raw mut self.stack as *mut T }
     }
 
     #[inline(always)]
@@ -1111,6 +1112,26 @@ impl<T, const N: usize> TinyVec<T, N> {
             unsafe { self.switch_to_stack(); }
         } else {
             unsafe { self.inner.raw.shrink_to_fit(self.len.get()); };
+        }
+    }
+
+    /// Clears all the elements of this vector
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::{TinyVec, tinyvec};
+    ///
+    /// let mut vec: TinyVec<_, 5> = tinyvec![1, 2, 3, 4, 5];
+    /// vec.clear();
+    ///
+    /// assert!(vec.is_empty());
+    /// assert_eq!(vec.as_slice(), &[]);
+    /// ```
+    pub fn clear(&mut self) {
+        let ptr = self.as_mut_slice() as *mut [T];
+        unsafe {
+            self.len.set(0);
+            ptr::drop_in_place(ptr);
         }
     }
 

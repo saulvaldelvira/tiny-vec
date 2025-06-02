@@ -116,3 +116,30 @@ fn iter_test() {
     assert_eq!(iter.next_back(), Some(4));
     assert_eq!(iter.next(), Some(3));
 }
+
+#[test]
+fn drain_test() {
+    let mut tv = TinyVec::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    let mut drain = tv.drain(3..6);
+    assert_eq!(drain.next(), Some(3));
+    assert_eq!(drain.next(), Some(4));
+    drop(drain);
+
+    assert_eq!(tv.as_slice(), &[0, 1, 2, 6, 7, 8, 9]);
+}
+
+#[test]
+fn drain_keep_rest() {
+    let mut tv = TinyVec::from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    let mut drain = tv.drain(3..7);
+
+    assert_eq!(drain.next(), Some(3));
+    assert_eq!(drain.next(), Some(4));
+
+    assert_eq!(drain.as_slice(), &[5, 6]);
+    drain.keep_rest();
+
+    assert_eq!(tv.as_slice(), &[0, 1, 2, 5, 6, 7, 8, 9]);
+}
