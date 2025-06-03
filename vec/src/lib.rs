@@ -202,7 +202,22 @@ macro_rules! tinyvec {
 /// assert_eq!(n_elements_for_stack::<i32>(), 4);
 /// ```
 pub const fn n_elements_for_stack<T>() -> usize {
-    mem::size_of::<RawVec<T>>() / mem::size_of::<T>()
+    n_elements_for_bytes::<T>(mem::size_of::<RawVec<T>>())
+}
+
+/// The maximun number of elements of type T, that can be stored on
+/// the given byte size
+///
+/// # Examples
+/// ```
+/// use tiny_vec::n_elements_for_bytes;
+///
+/// assert_eq!(n_elements_for_bytes::<u8>(2), 2);
+/// assert_eq!(n_elements_for_bytes::<u16>(4), 2);
+/// assert_eq!(n_elements_for_bytes::<i32>(17), 4);
+/// ```
+pub const fn n_elements_for_bytes<T>(n: usize) -> usize {
+    n / mem::size_of::<T>()
 }
 
 fn slice_range<R>(range: R, len: usize) -> Range<usize>
