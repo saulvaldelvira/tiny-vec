@@ -56,11 +56,7 @@ impl<const N: usize> Drain<'_, N> {
     pub fn keep_rest(self) {
         let mut slf = ManuallyDrop::new(self);
 
-        /* [ HEAD ] [ yieled  | remaining | yielded_back ] [ TAIL ]
-         *         ^          ^           ^                ^
-         *         |          |           |                |
-         *      vec.len   iter.ptr  (iter.ptr + iter.len)  tail_start
-         * */
+        /* [ HEAD ] [ yieled  | remaining | yielded_back ] [ TAIL ] */
         unsafe {
             let string = slf.string.as_mut();
             let start = string.len();
@@ -77,7 +73,7 @@ impl<const N: usize> Drain<'_, N> {
             /* Now we move the tail */
             ptr::copy(src, dst, slf.tail_len);
 
-            string.0.set_len(start + slf.remaining_len + slf.tail_len);
+            string.buf.set_len(start + slf.remaining_len + slf.tail_len);
         }
     }
 }
@@ -120,7 +116,7 @@ impl<const N: usize> Drop for Drain<'_, N> {
             let dst = ptr.add(len);
             ptr::copy(src, dst, self.tail_len);
 
-            string.0.set_len(len + self.tail_len);
+            string.buf.set_len(len + self.tail_len);
         }
     }
 }
@@ -171,7 +167,7 @@ impl<const N: usize> TinyString<N> {
         let len = self.len();
         let Range { start, end } = self.slice_range(range, len);
         unsafe {
-            self.0.set_len(start);
+            self.buf.set_len(start);
 
             let string = NonNull::new_unchecked(self as *mut _);
             Drain {

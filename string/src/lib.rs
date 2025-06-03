@@ -66,7 +66,9 @@ pub mod drain;
 const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
 
 /// A string that can store a small amount of bytes on the stack.
-pub struct TinyString<const N: usize = MAX_N_STACK_ELEMENTS>(TinyVec<u8, N>);
+pub struct TinyString<const N: usize = MAX_N_STACK_ELEMENTS> {
+    buf: TinyVec<u8, N>,
+}
 
 impl<const N: usize> TinyString<N> {
     fn slice_range<R>(&self, range: R, len: usize) -> Range<usize>
@@ -99,12 +101,12 @@ impl<const N: usize> TinyString<N> {
     /// Creates a new [TinyString]
     #[inline]
     pub const fn new() -> Self {
-        Self(TinyVec::new())
+        Self { buf: TinyVec::new() }
     }
 
     /// Creates a new [TinyString] with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
-        Self(TinyVec::with_capacity(cap))
+        Self { buf: TinyVec::with_capacity(cap) }
     }
 
     /// Creates a new [TinyString] from the given utf8 buffer.
@@ -113,7 +115,7 @@ impl<const N: usize> TinyString<N> {
     /// If the byte buffer contains invalid uft8
     pub fn from_utf8(utf8: TinyVec<u8, N>) -> Result<Self,Utf8Error> {
         str::from_utf8(utf8.as_slice())?;
-        Ok(Self(utf8))
+        Ok(Self { buf: utf8 })
     }
 
     /// Creates a new [TinyString] from the given utf8 buffer.
@@ -122,31 +124,31 @@ impl<const N: usize> TinyString<N> {
     /// The caller must ensure that the given contains valid utf8
     #[inline(always)]
     pub const unsafe fn from_utf8_unchecked(utf8: TinyVec<u8, N>) -> Self {
-        Self(utf8)
+        Self { buf: utf8 }
     }
 
     /// Returns the number of elements inside this string
     #[inline]
-    pub const fn len(&self) -> usize { self.0.len() }
+    pub const fn len(&self) -> usize { self.buf.len() }
 
     /// Returns true if the string is empty
     #[inline]
-    pub const fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub const fn is_empty(&self) -> bool { self.buf.is_empty() }
 
     /// Returns the allocated capacity for this string
     #[inline]
-    pub const fn capacity(&self) -> usize { self.0.capacity() }
+    pub const fn capacity(&self) -> usize { self.buf.capacity() }
 
     /// Returns a str slice
     #[inline]
     pub const fn as_str(&self) -> &str {
-        unsafe { str::from_utf8_unchecked(self.0.as_slice()) }
+        unsafe { str::from_utf8_unchecked(self.buf.as_slice()) }
     }
 
     /// Returns a mutable str slice
     #[inline]
     pub const fn as_mut_str(&mut self) -> &mut str {
-        unsafe { str::from_utf8_unchecked_mut(self.0.as_mut_slice()) }
+        unsafe { str::from_utf8_unchecked_mut(self.buf.as_mut_slice()) }
     }
 
     /// Returns a const pointer to the buffer
@@ -154,7 +156,7 @@ impl<const N: usize> TinyString<N> {
     /// This method shadows [str::as_ptr], to avoid a deref
     #[inline]
     pub const fn as_ptr(&self) -> *const u8 {
-        self.0.as_ptr()
+        self.buf.as_ptr()
     }
 
     /// Returns a mutable pointer to the buffer
@@ -162,24 +164,24 @@ impl<const N: usize> TinyString<N> {
     /// This method shadows [str::as_mut_ptr], to avoid a deref
     #[inline]
     pub const fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.0.as_mut_ptr()
+        self.buf.as_mut_ptr()
     }
 
     /// Returns the string as a byte slice
     #[inline]
     pub const fn as_bytes(&self) -> &[u8] {
-        self.0.as_slice()
+        self.buf.as_slice()
     }
 
     /// Pushes a character into the string
     pub fn push(&mut self, c: char) {
         let len = c.len_utf8();
         if len == 1 {
-            self.0.push(c as u8);
+            self.buf.push(c as u8);
         } else {
             let mut buf = [0_u8; 4];
             c.encode_utf8(&mut buf);
-            self.0.extend_from_slice(&buf[..len]);
+            self.buf.extend_from_slice(&buf[..len]);
         }
     }
 
@@ -200,7 +202,7 @@ impl<const N: usize> TinyString<N> {
         let c = self.chars().next_back()?;
         let new_len = self.len() - c.len_utf8();
         unsafe {
-            self.0.set_len(new_len);
+            self.buf.set_len(new_len);
         }
         Some(c)
     }
@@ -208,13 +210,13 @@ impl<const N: usize> TinyString<N> {
     /// Pushes a str slice into this string
     #[inline]
     pub fn push_str(&mut self, s: &str) {
-        self.0.extend_from_slice_copied(s.as_bytes());
+        self.buf.extend_from_slice_copied(s.as_bytes());
     }
 
     /// Shrinks the capacity of this string to fit exactly it's length
     #[inline]
     pub fn shrink_to_fit(&mut self) {
-        self.0.shrink_to_fit();
+        self.buf.shrink_to_fit();
     }
 
     /// Clears the string
@@ -231,19 +233,19 @@ impl<const N: usize> TinyString<N> {
     /// ```
     #[inline]
     pub fn clear(&mut self) {
-        self.0.clear();
+        self.buf.clear();
     }
 
     /// Reserves space for, at least, n bytes
     #[inline]
     pub fn reserve(&mut self, n: usize) {
-        self.0.reserve(n);
+        self.buf.reserve(n);
     }
 
     /// Reserves space for exactly n more bytes
     #[inline]
     pub fn reserve_exact(&mut self, n: usize) {
-        self.0.reserve_exact(n);
+        self.buf.reserve_exact(n);
     }
 
     /// Converts this TinyString into a boxed str
@@ -259,7 +261,7 @@ impl<const N: usize> TinyString<N> {
     /// assert_eq!(&*b, "abc");
     /// ```
     pub fn into_boxed_str(self) -> Box<str> {
-        let b = self.0.into_boxed_slice();
+        let b = self.buf.into_boxed_slice();
         unsafe { alloc::str::from_boxed_utf8_unchecked(b) }
     }
 
@@ -286,7 +288,7 @@ impl<const N: usize> TinyString<N> {
         R: RangeBounds<usize>
     {
         let Range { start, end } = self.slice_range(range, self.len());
-        self.0.extend_from_within_copied(start..end);
+        self.buf.extend_from_within_copied(start..end);
     }
 }
 
@@ -346,13 +348,13 @@ impl<const N: usize> TryFrom<Vec<u8>> for TinyString<N> {
 
 impl<const N: usize> From<TinyString<N>> for TinyVec<u8, N> {
     fn from(value: TinyString<N>) -> Self {
-        value.0
+        value.buf
     }
 }
 
 impl<const N: usize> From<TinyString<N>> for Vec<u8> {
     fn from(value: TinyString<N>) -> Self {
-        value.0.into_vec()
+        value.buf.into_vec()
     }
 }
 

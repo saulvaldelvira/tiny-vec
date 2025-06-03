@@ -98,7 +98,7 @@ impl<const N: usize> TinyString<N> {
     /// ```
     pub fn into_chars(self) -> TinyStringChars<N> {
         TinyStringChars {
-            buf: self.0.into_iter()
+            buf: self.buf.into_iter()
         }
     }
 
@@ -116,7 +116,7 @@ impl<const N: usize> TinyString<N> {
     /// assert_eq!(&bytes[..], &collected[..]);
     /// ```
     pub fn into_bytes(self) -> TinyStringBytes<N> {
-        TinyStringBytes(self.0.into_iter())
+        TinyStringBytes(self.buf.into_iter())
     }
 }
 
