@@ -173,6 +173,23 @@ impl<const N: usize> TinyString<N> {
         self.0.shrink_to_fit();
     }
 
+    /// Clears the string
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut s: TinyString<5> = TinyString::from("Hello");
+    /// s.clear();
+    ///
+    /// assert!(s.is_empty());
+    /// assert_eq!(s.as_str(), "");
+    /// ```
+    #[inline]
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
     /// Reserves space for, at least, n bytes
     #[inline]
     pub fn reserve(&mut self, n: usize) {
