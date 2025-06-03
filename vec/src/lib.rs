@@ -475,7 +475,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         T: Clone
     {
         let mut v = Self::with_capacity(slice.len());
-        v.extend_from_slice(slice);
+        v.extend_from_slice_impl(slice);
         v
     }
 
@@ -803,11 +803,12 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(vec.as_slice(), &["abc", "__", "def", "__", "ghi"]);
     /// ```
     /// [insert_slice_copied]: Self::insert_slice_copied
+    #[inline]
     pub fn insert_slice<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]>
     where
         T: Clone
     {
-        self.insert_iter(index, elems.iter().cloned()).map_err(|_| elems)
+        self.insert_slice_impl(index, elems)
     }
 
     /// Inserts all the elements of the given slice into the
@@ -1173,11 +1174,6 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Copies all the elements of the given slice into the vector
     ///
-    /// This function clones the elements in the slice.
-    ///
-    /// If the type T is [Copy], the [extend_from_slice_copied]
-    /// function is a more optimized alternative
-    ///
     /// # Example
     /// ```
     /// use tiny_vec::TinyVec;
@@ -1192,11 +1188,12 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(vec.as_slice(), &["abc", "def", "__"]);
     /// ```
     /// [extend_from_slice_copied]: Self::extend_from_slice_copied
+    #[inline]
     pub fn extend_from_slice(&mut self, s: &[T])
     where
         T: Clone
     {
-        self.extend(s.iter().cloned());
+        self.extend_from_slice_impl(s);
     }
 
     /// Copies all the elements of the given slice into the vector
@@ -1344,6 +1341,40 @@ macro_rules! maybe_default {
     };
 }
 
+trait CopyOptimization<T> {
+    fn extend_from_slice_impl(&mut self, s: &[T]);
+    fn insert_slice_impl<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]>;
+}
+
+impl<T: Clone, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
+    maybe_default! {
+        fn extend_from_slice_impl(&mut self, s: &[T]) {
+            self.extend(s.iter().cloned());
+        }
+    }
+
+    maybe_default! {
+        fn insert_slice_impl<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]> {
+            self.insert_iter(index, elems.iter().cloned()).map_err(|_| elems)
+        }
+    }
+}
+
+#[cfg(feature = "use-nightly-features")]
+impl<T: Copy, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
+
+    #[inline]
+    fn extend_from_slice_impl(&mut self, s: &[T]) {
+        self.extend_from_slice_copied(s);
+    }
+
+    #[inline]
+    fn insert_slice_impl<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]> {
+        self.insert_slice_copied(index, elems)
+    }
+
+}
+
 impl<T, const N: usize> Default for TinyVec<T, N> {
     #[inline]
     fn default() -> Self {
@@ -1398,9 +1429,11 @@ impl<T, const N: usize> Drop for TinyVec<T, N> {
 }
 
 macro_rules! impl_from_call {
-    ($( $({$($im:tt)*})? $t:ty => $c:ident ),* $(,)?) => {
+    ($( $({$($im:tt)*})? $(where { $($w:tt)* })? $t:ty => $c:ident ),* $(,)?) => {
        $(
-            impl<T, const N: usize, $($($im)*)?> From<$t> for TinyVec<T, N> {
+            impl<T, const N: usize, $($($im)*)?> From<$t> for TinyVec<T, N>
+            $(where $($w)* )?
+            {
                 fn from(value: $t) -> Self {
                     Self:: $c (value)
                 }
@@ -1413,35 +1446,12 @@ impl_from_call! {
     Vec<T> => from_vec,
     Box<[T]> => from_boxed_slice,
     [T; N] => from_array_eq_size,
-}
 
-macro_rules! impl_from_call_w_copy_spec {
-    ( $( $({$($im:tt)*})? $t:ty => $def_call:ident, $copy_call:ident ;)* ) => {
-       $(
-            impl<T: Clone, const N: usize, $( $($im)* )? > From<$t> for TinyVec<T, N> {
-                maybe_default!(
-                    fn from(value: $t) -> Self {
-                        Self:: $def_call (value)
-                    }
-                );
-            }
+    where { T: Clone } &[T] => from_slice,
+    where { T: Clone } &mut [T] => from_slice,
 
-            #[cfg(feature = "use-nightly-features")]
-            impl<T: Clone + Copy, const N: usize, $( $($im)* )? > From<$t> for TinyVec<T, N> {
-                fn from(value: $t) -> Self {
-                    Self:: $copy_call (value)
-                }
-            }
-       )*
-    };
-}
-
-impl_from_call_w_copy_spec! {
-    &[T] => from_slice, from_slice_copied;
-    &mut [T] => from_slice, from_slice_copied;
-
-    { const M: usize } &[T; M] => from_slice, from_slice_copied;
-    { const M: usize } &mut [T; M] => from_slice, from_slice_copied;
+    { const M: usize } where { T: Clone } &[T; M] => from_slice,
+    { const M: usize } where { T: Clone } &mut [T; M] => from_slice,
 }
 
 impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
@@ -1481,17 +1491,8 @@ impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
 }
 
 impl<T: Clone, const N: usize> Clone for TinyVec<T, N> {
-    maybe_default!(
-        fn clone(&self) -> Self {
-            Self::from_slice(self.as_slice())
-        }
-    );
-}
-
-#[cfg(feature = "use-nightly-features")]
-impl<T: Clone + Copy, const N: usize> Clone for TinyVec<T, N> {
     fn clone(&self) -> Self {
-        Self::from_slice_copied(self.as_slice())
+        Self::from_slice(self.as_slice())
     }
 }
 
