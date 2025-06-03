@@ -52,7 +52,7 @@
 
 use core::fmt::{self, Display};
 use core::ops::{Deref, DerefMut};
-use core::str::{self, Utf8Error};
+use core::str::{self, FromStr, Utf8Error};
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -60,6 +60,8 @@ use alloc::boxed::Box;
 
 use tiny_vec::TinyVec;
 pub mod iter;
+
+pub mod drain;
 
 const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
 
@@ -119,6 +121,22 @@ impl<const N: usize> TinyString<N> {
     #[inline]
     pub const fn as_mut_str(&mut self) -> &mut str {
         unsafe { str::from_utf8_unchecked_mut(self.0.as_mut_slice()) }
+    }
+
+    /// Returns a const pointer to the buffer
+    ///
+    /// This method shadows [str::as_ptr], to avoid a deref
+    #[inline]
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+
+    /// Returns a mutable pointer to the buffer
+    ///
+    /// This method shadows [str::as_mut_ptr], to avoid a deref
+    #[inline]
+    pub const fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.0.as_mut_ptr()
     }
 
     /// Returns the string as a byte slice
@@ -357,6 +375,14 @@ impl<const N: usize> fmt::Debug for TinyString<N> {
 impl<const N: usize> Display for TinyString<N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl<const N: usize> FromStr for TinyString<N> {
+    type Err = core::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from(s))
     }
 }
 

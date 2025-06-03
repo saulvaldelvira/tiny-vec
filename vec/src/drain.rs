@@ -1,3 +1,5 @@
+//! [drain](TinyVec::drain) implementation
+//!
 use crate::TinyVec;
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
@@ -6,6 +8,9 @@ use core::ops::{Bound, RangeBounds};
 use core::ptr::{self, NonNull};
 use core::slice;
 
+/// A draining iterator for [TinyVec]
+///
+/// This struct is created by the [TinyVec::drain] method
 pub struct Drain<'a, T: 'a, const N: usize> {
     remaining_start: usize,
     remaining_len: usize,
