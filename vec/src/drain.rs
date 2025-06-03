@@ -51,11 +51,7 @@ impl<'a, T: 'a, const N: usize> Drain<'a, T, N> {
     pub fn keep_rest(self) {
         let mut slf = ManuallyDrop::new(self);
 
-        /* [ HEAD ] [ yieled  | remaining | yielded_back ] [ TAIL ]
-         *         ^          ^           ^                ^
-         *         |          |           |                |
-         *      vec.len   iter.ptr  (iter.ptr + iter.len)  tail_start
-         * */
+        /* [ HEAD ] [ yieled  | remaining | yielded_back ] [ TAIL ] */
         unsafe {
             let vec = slf.vec.as_mut();
             let start = vec.len();

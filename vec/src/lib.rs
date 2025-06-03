@@ -79,6 +79,7 @@ use raw::RawVec;
 
 pub mod iter;
 pub mod drain;
+pub mod extract_if;
 
 union TinyVecInner<T, const N: usize> {
     stack: ManuallyDrop<[MaybeUninit<T>; N]>,
