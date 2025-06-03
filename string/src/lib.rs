@@ -51,7 +51,7 @@
 #![cfg_attr(feature = "use-nightly-features", feature(extend_one))]
 
 use core::fmt::{self, Display};
-use core::ops::{Deref, DerefMut};
+use core::ops::{Bound, Deref, DerefMut, Range, RangeBounds};
 use core::str::{self, FromStr, Utf8Error};
 
 extern crate alloc;
@@ -67,6 +67,32 @@ const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
 
 /// A string that can store a small amount of bytes on the stack.
 pub struct TinyString<const N: usize = MAX_N_STACK_ELEMENTS>(TinyVec<u8, N>);
+
+impl<const N: usize> TinyString<N> {
+    fn slice_range<R>(&self, range: R, len: usize) -> Range<usize>
+    where
+        R: RangeBounds<usize>
+    {
+        let start = match range.start_bound() {
+            Bound::Included(n) => *n,
+            Bound::Excluded(n) => *n + 1,
+            Bound::Unbounded => 0,
+        };
+
+        let end = match range.end_bound() {
+            Bound::Included(n) => *n + 1,
+            Bound::Excluded(n) => *n,
+            Bound::Unbounded => len,
+        };
+
+        assert!(start <= end);
+        assert!(end <= len);
+        assert!(self.is_char_boundary(start));
+        assert!(self.is_char_boundary(end));
+
+        Range { start, end }
+    }
+}
 
 impl<const N: usize> TinyString<N> {
 
@@ -235,6 +261,32 @@ impl<const N: usize> TinyString<N> {
     pub fn into_boxed_str(self) -> Box<str> {
         let b = self.0.into_boxed_slice();
         unsafe { alloc::str::from_boxed_utf8_unchecked(b) }
+    }
+
+    /// Copies the slice from the given range to the back
+    /// of this string.
+    ///
+    /// # Panics
+    /// - If the range is invalid for [0, self.len)
+    /// - If either the start or the end of the range fall
+    ///   outside a char boundary
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut s = TinyString::<10>::from("abcdefg");
+    ///
+    /// s.extend_from_within(3..=5);
+    ///
+    /// assert_eq!(s, "abcdefgdef");
+    /// ```
+    pub fn extend_from_within<R>(&mut self, range: R)
+    where
+        R: RangeBounds<usize>
+    {
+        let Range { start, end } = self.slice_range(range, self.len());
+        self.0.extend_from_within_copied(start..end);
     }
 }
 

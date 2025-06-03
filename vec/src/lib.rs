@@ -69,7 +69,7 @@ use alloc::vec::Vec;
 use alloc::boxed::Box;
 
 use core::mem::{self, ManuallyDrop, MaybeUninit};
-use core::ops::{Deref, DerefMut};
+use core::ops::{Range, Bound, Deref, DerefMut, RangeBounds};
 use core::ptr::NonNull;
 use core::{fmt, ptr};
 use core::slice;
@@ -204,6 +204,28 @@ pub const fn n_elements_for_stack<T>() -> usize {
     mem::size_of::<RawVec<T>>() / mem::size_of::<T>()
 }
 
+fn slice_range<R>(range: R, len: usize) -> Range<usize>
+where
+    R: RangeBounds<usize>
+{
+    let start = match range.start_bound() {
+        Bound::Included(n) => *n,
+        Bound::Excluded(n) => *n + 1,
+        Bound::Unbounded => 0,
+    };
+
+    let end = match range.end_bound() {
+        Bound::Included(n) => *n + 1,
+        Bound::Excluded(n) => *n,
+        Bound::Unbounded => len,
+    };
+
+    assert!(start <= end);
+    assert!(end <= len);
+
+    Range { start, end }
+}
+
 /// A dynamic array that can store a small amount of elements on the stack.
 pub struct TinyVec<T,
     #[cfg(not(feature = "use-nightly-features"))]
@@ -252,6 +274,21 @@ impl<T, const N: usize> TinyVec<T, N> {
 
         self.inner.stack =  ManuallyDrop::new(stack);
         self.len.set_stack();
+    }
+
+    unsafe fn split_at_spare(&mut self) -> (&mut [T], &mut [MaybeUninit<T>], &mut Length) {
+        unsafe {
+            let len = self.len();
+            let ptr = self.as_mut_ptr();
+
+            let spare_ptr = ptr.add(len).cast::<MaybeUninit<T>>();
+            let spare_len = self.capacity() - len;
+
+            let slice = slice::from_raw_parts_mut(ptr, len);
+            let spare_slice = slice::from_raw_parts_mut(spare_ptr, spare_len);
+
+            (slice, spare_slice, &mut self.len)
+        }
     }
 }
 
@@ -1235,6 +1272,53 @@ impl<T, const N: usize> TinyVec<T, N> {
         self.len.add(len);
     }
 
+    /// Copies the slice from the given range to the back
+    /// of this vector.
+    ///
+    /// # Panics
+    /// Panics if the range is invalid for [0, self.len)
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4, 5, 6, 7, 8]);
+    ///
+    /// vec.extend_from_within(3..=5);
+    ///
+    /// assert_eq!(vec, &[1, 2, 3, 4, 5, 6, 7, 8, 4, 5, 6]);
+    /// ```
+    #[inline]
+    pub fn extend_from_within<R>(&mut self, range: R)
+    where
+        T: Clone,
+        R: RangeBounds<usize>,
+    {
+        self.extend_from_within_impl(range);
+    }
+
+    /// Like [extend_from_within](Self::extend_from_within),
+    /// but optimized for [Copy] types
+    pub fn extend_from_within_copied<R>(&mut self, range: R)
+    where
+        T: Copy,
+        R: RangeBounds<usize>,
+    {
+        let len = self.len();
+        let Range { start, end } = slice_range(range, len);
+
+        let new_len = end - start;
+        self.reserve(new_len);
+
+        let ptr = self.as_mut_ptr();
+        unsafe {
+            let src = ptr.add(start);
+            let dst = ptr.add(len);
+            ptr::copy(src, dst, new_len);
+        }
+        self.len.add(new_len);
+    }
+
     /// Converts this [TinyVec] into a boxed slice
     ///
     /// # Example
@@ -1344,6 +1428,9 @@ macro_rules! maybe_default {
 trait CopyOptimization<T> {
     fn extend_from_slice_impl(&mut self, s: &[T]);
     fn insert_slice_impl<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]>;
+    fn extend_from_within_impl<R>(&mut self, range: R)
+    where
+        R: RangeBounds<usize>;
 }
 
 impl<T: Clone, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
@@ -1356,6 +1443,26 @@ impl<T: Clone, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
     maybe_default! {
         fn insert_slice_impl<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]> {
             self.insert_iter(index, elems.iter().cloned()).map_err(|_| elems)
+        }
+    }
+
+    maybe_default! {
+        fn extend_from_within_impl<R>(&mut self, range: R)
+        where
+            R: RangeBounds<usize>
+        {
+            let len = self.len();
+            let Range { start, end } = slice_range(range, len);
+
+            self.reserve(end - start);
+
+            let (slice, spare, len) = unsafe { self.split_at_spare() };
+            let slice = &slice[start..end];
+
+            for (src, dst) in slice.iter().zip(spare.iter_mut()) {
+                dst.write(src.clone());
+                len.add(1);
+            }
         }
     }
 }
@@ -1371,6 +1478,14 @@ impl<T: Copy, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
     #[inline]
     fn insert_slice_impl<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]> {
         self.insert_slice_copied(index, elems)
+    }
+
+    #[inline]
+    fn extend_from_within_impl<R>(&mut self, range: R)
+    where
+        R: RangeBounds<usize>
+    {
+        self.extend_from_within_copied(range);
     }
 
 }

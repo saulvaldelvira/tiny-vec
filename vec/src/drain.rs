@@ -1,10 +1,10 @@
 //! [drain](TinyVec::drain) implementation
 //!
-use crate::TinyVec;
+use crate::{slice_range, TinyVec};
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop};
-use core::ops::{Bound, RangeBounds};
+use core::ops::{Range, RangeBounds};
 use core::ptr::{self, NonNull};
 use core::slice;
 
@@ -189,21 +189,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     {
 
         let len = self.len();
-
-        let start = match range.start_bound() {
-            Bound::Included(n) => *n,
-            Bound::Excluded(n) => *n + 1,
-            Bound::Unbounded => 0,
-        };
-
-        let end = match range.end_bound() {
-            Bound::Included(n) => *n + 1,
-            Bound::Excluded(n) => *n,
-            Bound::Unbounded => len,
-        };
-
-        assert!(start <= end);
-        assert!(end <= len);
+        let Range { start, end } = slice_range(range, len);
 
         unsafe {
             self.set_len(start);

@@ -3,7 +3,7 @@
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
-use core::ops::{Bound, RangeBounds};
+use core::ops::{Range, RangeBounds};
 use core::ptr::{self, NonNull};
 
 use alloc::{slice, str};
@@ -168,26 +168,8 @@ impl<const N: usize> TinyString<N> {
     where
         R: RangeBounds<usize>
     {
-
         let len = self.len();
-
-        let start = match range.start_bound() {
-            Bound::Included(n) => *n,
-            Bound::Excluded(n) => *n + 1,
-            Bound::Unbounded => 0,
-        };
-
-        let end = match range.end_bound() {
-            Bound::Included(n) => *n + 1,
-            Bound::Excluded(n) => *n,
-            Bound::Unbounded => len,
-        };
-
-        assert!(start <= end);
-        assert!(end <= len);
-        assert!(self.is_char_boundary(start));
-        assert!(self.is_char_boundary(end));
-
+        let Range { start, end } = self.slice_range(range, len);
         unsafe {
             self.0.set_len(start);
 
