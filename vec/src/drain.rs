@@ -1,10 +1,9 @@
 //! [drain](TinyVec::drain) implementation
 //!
-use crate::{slice_range, TinyVec};
+use crate::TinyVec;
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop};
-use core::ops::{Range, RangeBounds};
 use core::ptr::{self, NonNull};
 use core::slice;
 
@@ -12,12 +11,12 @@ use core::slice;
 ///
 /// This struct is created by the [TinyVec::drain] method
 pub struct Drain<'a, T: 'a, const N: usize> {
-    remaining_start: usize,
-    remaining_len: usize,
-    tail_start: usize,
-    tail_len: usize,
-    vec: NonNull<TinyVec<T, N>>,
-    _marker: PhantomData<&'a mut TinyVec<T, N>>,
+    pub (super) remaining_start: usize,
+    pub (super) remaining_len: usize,
+    pub (super) tail_start: usize,
+    pub (super) tail_len: usize,
+    pub (super) vec: NonNull<TinyVec<T, N>>,
+    pub (super) _marker: PhantomData<&'a mut TinyVec<T, N>>,
 }
 
 impl<'a, T: 'a, const N: usize> Drain<'a, T, N> {
@@ -138,66 +137,6 @@ impl<'a, T: 'a, const N: usize> Drop for Drain<'a, T, N> {
             ptr::copy(src, dst, self.tail_len);
 
             vec.set_len(len + self.tail_len);
-        }
-    }
-}
-
-impl<T, const N: usize> TinyVec<T, N> {
-
-    /// Removes the subslice indicated by the given range from the vector,
-    /// returning a double-ended iterator over the removed subslice.
-    ///
-    /// If the iterator is dropped before being fully consumed,
-    /// it drops the remaining removed elements.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the starting point is greater than the end point or if
-    /// the end point is greater than the length of the vector.
-    ///
-    /// # Leaking
-    ///
-    /// If the returned iterator goes out of scope without being dropped (due to
-    /// [`mem::forget`], for example), the vector may have lost and leaked
-    /// elements arbitrarily, including elements outside the range.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tiny_vec::{tinyvec, TinyVec};
-    /// let mut v: TinyVec<_, 10> = tinyvec![0, 1, 2, 3, 4, 5, 6];
-    /// let mut drain = v.drain(2..=4);
-    /// assert_eq!(drain.next(), Some(2));
-    /// assert_eq!(drain.next(), Some(3));
-    /// assert_eq!(drain.next(), Some(4));
-    /// assert_eq!(drain.next(), None);
-    /// drop(drain);
-    ///
-    /// assert_eq!(v, &[0, 1, 5, 6]);
-    ///
-    /// // A full range clears the vector, like `clear()` does
-    /// v.drain(..);
-    /// assert_eq!(v, &[]);
-    /// ```
-    pub fn drain<R>(&mut self, range: R) -> Drain<T, N>
-    where
-        R: RangeBounds<usize>
-    {
-
-        let len = self.len();
-        let Range { start, end } = slice_range(range, len);
-
-        unsafe {
-            self.set_len(start);
-
-            Drain {
-                vec: NonNull::new_unchecked(self as *mut _),
-                remaining_start: start,
-                remaining_len: end - start,
-                tail_start: end,
-                tail_len: len - end,
-                _marker: PhantomData,
-            }
         }
     }
 }

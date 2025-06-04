@@ -127,6 +127,27 @@ impl<const N: usize> TinyString<N> {
         Self { buf: utf8 }
     }
 
+    /// Creates a new `TinyString` by repeating the given `slice` `n` times.
+    ///
+    /// # Panics
+    /// If the capacity requires overflows `isize::MAX`
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    /// let s = TinyString::<10>::repeat("abc", 5);
+    /// assert_eq!(s.as_str(), "abcabcabcabcabc");
+    /// ```
+    pub fn repeat(slice: &str, n: usize) -> Self {
+        let len = slice.len() * n;
+        let mut s = Self::with_capacity(len);
+        let bytes = slice.as_bytes();
+        for _ in 0..n {
+            s.buf.extend_from_slice_copied(bytes);
+        }
+        s
+    }
+
     /// Returns the number of elements inside this string
     #[inline]
     pub const fn len(&self) -> usize { self.buf.len() }
@@ -374,6 +395,59 @@ impl<const N: usize> TinyString<N> {
         assert!(self.is_char_boundary(new_len));
         self.buf.truncate(new_len);
     }
+
+    /// Inserts a character into this `TinyString` at a byte position.
+    ///
+    /// This is an *O*(*n*) operation as it requires copying every element in the
+    /// buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is larger than the `TinyString`'s length, or if it does not
+    /// lie on a [`char`] boundary.
+    ///
+    /// # Example
+    /// ```
+    /// let mut s = tiny_str::TinyString::<10>::from("Hello world :)");
+    ///
+    /// s.insert(5, '@');
+    ///
+    /// assert_eq!(s, "Hello@ world :)");
+    /// ```
+    pub fn insert(&mut self, index: usize, ch: char) {
+        assert!(self.is_char_boundary(index));
+        let mut buf = [0; 4];
+        ch.encode_utf8(&mut buf);
+        let len = ch.len_utf8();
+        self.buf.insert_slice(index, &buf[..len]).unwrap_or_else(|_| {
+            unreachable!("We've checked the index in the assertion above")
+        })
+    }
+
+    /// Inserts a string slice into this `TinyString` at a byte position.
+    ///
+    /// This is an *O*(*n*) operation as it requires copying every element in the
+    /// buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is larger than the `TinyString`'s length, or if it does not
+    /// lie on a [`char`] boundary.
+    ///
+    /// # Example
+    /// ```
+    /// let mut s = tiny_str::TinyString::<8>::from("Heworld");
+    ///
+    /// s.insert_str(2, "llo ");
+    ///
+    /// assert_eq!("Hello world", s);
+    /// ```
+    pub fn insert_str(&mut self, index: usize, s: &str) {
+        assert!(self.is_char_boundary(index));
+        self.buf.insert_slice(index, s.as_bytes()).unwrap_or_else(|_| {
+            unreachable!("We've checked the index in the assertion above")
+        })
+    }
 }
 
 impl<const N: usize> Default for TinyString<N> {
@@ -477,10 +551,16 @@ impl<const N: usize> Extend<char> for TinyString<N> {
 
 impl<const N: usize, S> PartialEq<S> for TinyString<N>
 where
-    S: AsRef<[u8]>
+    S: AsRef<str>,
 {
     fn eq(&self, other: &S) -> bool {
-        self.as_bytes() == other.as_ref()
+        self.as_str() == other.as_ref()
+    }
+}
+
+impl<const N: usize> PartialEq<TinyString<N>> for &str {
+    fn eq(&self, other: &TinyString<N>) -> bool {
+        self.as_bytes() == other.as_bytes()
     }
 }
 

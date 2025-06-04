@@ -67,7 +67,10 @@
 extern crate alloc;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
+use drain::Drain;
+use extract_if::ExtractIf;
 
+use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ops::{Range, Bound, Deref, DerefMut, RangeBounds};
 use core::ptr::NonNull;
@@ -1236,6 +1239,43 @@ impl<T, const N: usize> TinyVec<T, N> {
         self.len.set(len);
     }
 
+    /// Updates the length of the vector using the given closure.
+    ///
+    /// This is just the same as getting the len using [Self::len], and
+    /// then using [Self::set_len].
+    ///
+    /// *This is a low level api*. Use it only if you know what you're doing.
+    ///
+    /// # Safety
+    /// Just like [Self::set_len], you need to make sure that changing the
+    /// vector length doesn't leave the vector in an inconsistent state, or
+    /// leaks memory.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 10>::with_capacity(10);
+    ///
+    /// unsafe {
+    ///     let mut dst = vec.as_mut_ptr();
+    ///     let src = &[1, 2, 3, 4] as *const i32;
+    ///     core::ptr::copy(src, dst, 4);
+    ///     vec.update_len(|len| *len += 4);
+    ///     // Same as:
+    ///     // let len = vec.len();
+    ///     // len.set_len(len + 4);
+    /// }
+    /// ```
+    pub unsafe fn update_len<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut usize)
+    {
+        let mut len = self.len.get();
+        f(&mut len);
+        self.len.set(len);
+    }
+
     /// Reduces the length in the vector, dropping the elements
     /// in range [new_len, old_len)
     ///
@@ -1419,9 +1459,10 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// The returned spare capacity slice can be used to fill the vector with data
     /// (e.g. by reading from a file) before marking the data as initialized using
-    /// the [`set_len`] method.
+    /// the [`set_len`], or [`update_len`] methods.
     ///
     /// [`set_len`]: TinyVec::set_len
+    /// [`update_len`]: TinyVec::update_len
     ///
     /// Note that this is a low-level API, which should be used with care for
     /// optimization purposes. If you need to append data to a `Vec`
@@ -1583,6 +1624,126 @@ impl<T, const N: usize> TinyVec<T, N> {
            other.set_len(0);
            self.len.add(other_len);
        }
+    }
+
+    /// Removes the subslice indicated by the given range from the vector,
+    /// returning a double-ended iterator over the removed subslice.
+    ///
+    /// If the iterator is dropped before being fully consumed,
+    /// it drops the remaining removed elements.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the starting point is greater than the end point or if
+    /// the end point is greater than the length of the vector.
+    ///
+    /// # Leaking
+    ///
+    /// If the returned iterator goes out of scope without being dropped (due to
+    /// [`mem::forget`], for example), the vector may have lost and leaked
+    /// elements arbitrarily, including elements outside the range.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tiny_vec::{tinyvec, TinyVec};
+    /// let mut v: TinyVec<_, 10> = tinyvec![0, 1, 2, 3, 4, 5, 6];
+    /// let mut drain = v.drain(2..=4);
+    /// assert_eq!(drain.next(), Some(2));
+    /// assert_eq!(drain.next(), Some(3));
+    /// assert_eq!(drain.next(), Some(4));
+    /// assert_eq!(drain.next(), None);
+    /// drop(drain);
+    ///
+    /// assert_eq!(v, &[0, 1, 5, 6]);
+    ///
+    /// // A full range clears the vector, like `clear()` does
+    /// v.drain(..);
+    /// assert_eq!(v, &[]);
+    /// ```
+    pub fn drain<R>(&mut self, range: R) -> Drain<T, N>
+    where
+        R: RangeBounds<usize>
+    {
+
+        let len = self.len();
+        let Range { start, end } = slice_range(range, len);
+
+        unsafe {
+            self.set_len(start);
+
+            Drain {
+                vec: NonNull::new_unchecked(self as *mut _),
+                remaining_start: start,
+                remaining_len: end - start,
+                tail_start: end,
+                tail_len: len - end,
+                _marker: PhantomData,
+            }
+        }
+    }
+
+    /// Creates an iterator which uses a closure to determine if the element in the range should be removed.
+    ///
+    /// If the closure returns true, then the element is removed and yielded.
+    /// If the closure returns false, the element will remain in the vector and will not be yielded
+    /// by the iterator.
+    ///
+    /// Only elements that fall in the provided range are considered for extraction, but any elements
+    /// after the range will still have to be moved if any element has been extracted.
+    ///
+    /// If the returned `ExtractIf` is not exhausted, e.g. because it is dropped without iterating
+    /// or the iteration short-circuits, then the remaining elements will be retained.
+    ///
+    /// Note that `extract_if` also lets you mutate the elements passed to the filter closure,
+    /// regardless of whether you choose to keep or remove them.
+    ///
+    /// # Panics
+    ///
+    /// If `range` is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// Splitting an array into evens and odds, reusing the original allocation:
+    ///
+    /// ```
+    /// use tiny_vec::TinyVec;
+    /// let mut numbers = TinyVec::<i32, 10>::from(&[1, 2, 3, 4, 5, 6, 8, 9, 11, 13, 14, 15]);
+    ///
+    /// let evens = numbers.extract_if(.., |x| *x % 2 == 0).collect::<TinyVec<_, 8>>();
+    /// let odds = numbers;
+    ///
+    /// assert_eq!(evens, &[2, 4, 6, 8, 14]);
+    /// assert_eq!(odds, &[1, 3, 5, 9, 11, 13, 15]);
+    /// ```
+    ///
+    /// Using the range argument to only process a part of the vector:
+    ///
+    /// ```
+    /// use tiny_vec::TinyVec;
+    /// let mut items = TinyVec::<i32, 10>::from(&[0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 2, 1, 2]);
+    /// let ones = items.extract_if(7.., |x| *x == 1).collect::<TinyVec<_, 4>>();
+    /// assert_eq!(items, vec![0, 0, 0, 0, 0, 0, 0, 2, 2, 2]);
+    /// assert_eq!(ones.len(), 3);
+    /// ```
+    pub fn extract_if<R, F>(&mut self, range: R, pred: F) -> ExtractIf<'_, T, N, F>
+    where
+        R: RangeBounds<usize>,
+        F: FnMut(&mut T) -> bool,
+    {
+        let len = self.len();
+        let Range { start, end } = slice_range(range, len);
+
+        unsafe { self.set_len(start) }
+
+        ExtractIf {
+            original_len: len,
+            deleted: 0,
+            next: start,
+            last: end,
+            vec: self,
+            pred,
+        }
     }
 
     /// Converts this [TinyVec] into a boxed slice
