@@ -290,6 +290,90 @@ impl<const N: usize> TinyString<N> {
         let Range { start, end } = self.slice_range(range, self.len());
         self.buf.extend_from_within_copied(start..end);
     }
+
+    /// Consumes and leaks the `TinyString`, returning a mutable reference to the contents,
+    /// `&'a mut str`.
+    ///
+    /// This method shrinks the buffer, and moves it to the heap in case it lived
+    /// on the stack.
+    ///
+    /// This function is mainly useful for data that lives for the remainder of
+    /// the program's life. Dropping the returned reference will cause a memory
+    /// leak.
+    ///
+    /// # Example
+    /// ```
+    /// let x = tiny_str::TinyString::<10>::from("ABCDEFG");
+    ///
+    /// let static_ref: &'static mut str = x.leak();
+    /// static_ref.make_ascii_lowercase();
+    ///
+    /// assert_eq!(static_ref, "abcdefg");
+    /// # // FIXME(https://github.com/rust-lang/miri/issues/3670):
+    /// # // use -Zmiri-disable-leak-check instead of unleaking in tests meant to leak.
+    /// # drop(unsafe{Box::from_raw(static_ref)})
+    /// ```
+    pub fn leak<'a>(mut self) -> &'a mut str {
+        self.buf.move_to_heap_exact();
+        self.buf.shrink_to_fit_heap_only();
+        unsafe {
+            let bytes = self.buf.leak();
+            str::from_utf8_unchecked_mut(bytes)
+        }
+    }
+
+    /// Splits the string into two at the given byte index.
+    ///
+    /// Returns a newly allocated `String`. `self` contains bytes `[0, at)`, and
+    /// the returned `String` contains bytes `[at, len)`. `at` must be on the
+    /// boundary of a UTF-8 code point.
+    ///
+    /// Note that the capacity of `self` does not change.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `at` is not on a `UTF-8` code point boundary, or if it is beyond the last
+    /// code point of the string.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut hello = tiny_str::TinyString::<8>::from("Hello, World!");
+    /// let world = hello.split_off(7);
+    /// assert_eq!(hello, "Hello, ");
+    /// assert_eq!(world, "World!");
+    /// ```
+    #[inline]
+    #[must_use = "use `.truncate()` if you don't need the other half"]
+    pub fn split_off(&mut self, at: usize) -> TinyString<N> {
+        assert!(self.is_char_boundary(at));
+        let other = self.buf.split_off(at);
+        unsafe { TinyString::from_utf8_unchecked(other) }
+    }
+
+    /// Shortens this `TinyString` to the specified length.
+    ///
+    /// If `new_len` is greater than or equal to the string's current length, this has no
+    /// effect.
+    ///
+    /// Note that this method has no effect on the allocated capacity
+    /// of the string
+    ///
+    /// # Panics
+    ///
+    /// Panics if `new_len` does not lie on a [`char`] boundary.
+    ///
+    /// # Example
+    /// ```
+    /// let mut s = tiny_str::TinyString::<6>::from("hello");
+    ///
+    /// s.truncate(2);
+    ///
+    /// assert_eq!(s, "he");
+    /// ```
+    pub fn truncate(&mut self, new_len: usize) {
+        assert!(self.is_char_boundary(new_len));
+        self.buf.truncate(new_len);
+    }
 }
 
 impl<const N: usize> Default for TinyString<N> {

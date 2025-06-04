@@ -292,7 +292,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         self.len.set_stack();
     }
 
-    unsafe fn split_at_spare(&mut self) -> (&mut [T], &mut [MaybeUninit<T>], &mut Length) {
+    const unsafe fn split_at_spare_mut_with_len(&mut self) -> (&mut [T], &mut [MaybeUninit<T>], &mut Length) {
         unsafe {
             let len = self.len();
             let ptr = self.as_mut_ptr();
@@ -306,6 +306,7 @@ impl<T, const N: usize> TinyVec<T, N> {
             (slice, spare_slice, &mut self.len)
         }
     }
+
 }
 
 impl<T, const N: usize> TinyVec<T, N> {
@@ -1156,7 +1157,13 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Shrinks the capacity of the vector to fit exactly it's length
-    #[inline]
+    ///
+    /// If the vector lives on the heap, but it's length fits inside the
+    /// stack-allocated buffer `self.len <= N`, it deallocates the heap
+    /// buffer and moves the contents to the stack.
+    ///
+    /// If you need a function that doesn't move the buffer to the stack,
+    /// use the [shrink_to_fit_heap_only](Self::shrink_to_fit_heap_only) function.
     pub fn shrink_to_fit(&mut self) {
         if self.len.is_stack() { return }
 
@@ -1165,6 +1172,32 @@ impl<T, const N: usize> TinyVec<T, N> {
         if self.len.get() <= N {
             unsafe { self.switch_to_stack(); }
         } else {
+            unsafe { self.inner.raw.shrink_to_fit(self.len.get()); };
+        }
+    }
+
+    /// Moves this `TinyVec` to the heap
+    pub fn move_to_heap(&mut self) {
+        if self.lives_on_stack() {
+            unsafe { self.switch_to_heap(0, false) };
+        }
+    }
+
+    /// Moves this `TinyVec` to the heap, without allocating more
+    /// than `self.len` elements
+    pub fn move_to_heap_exact(&mut self) {
+        if self.lives_on_stack() {
+            unsafe { self.switch_to_heap(0, true) };
+        }
+    }
+
+    /// Shrinks the capacity of the vector to fit exactly it's length.
+    ///
+    /// Unlike [shrink_to_fit](Self::shrink_to_fit), this function doesn't
+    /// move the buffer to the stack, even if the length of `self`, could
+    /// fit on the stack space.
+    pub fn shrink_to_fit_heap_only(&mut self) {
+        if !self.len.is_stack() {
             unsafe { self.inner.raw.shrink_to_fit(self.len.get()); };
         }
     }
@@ -1381,6 +1414,177 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    /// Returns vector content as a slice of `T`, along with the remaining spare
+    /// capacity of the vector as a slice of `MaybeUninit<T>`.
+    ///
+    /// The returned spare capacity slice can be used to fill the vector with data
+    /// (e.g. by reading from a file) before marking the data as initialized using
+    /// the [`set_len`] method.
+    ///
+    /// [`set_len`]: TinyVec::set_len
+    ///
+    /// Note that this is a low-level API, which should be used with care for
+    /// optimization purposes. If you need to append data to a `Vec`
+    /// you can use [`push`], [`extend`], [`extend_from_slice`],
+    /// [`extend_from_within`], [`insert`], [`append`], [`resize`] or
+    /// [`resize_with`], depending on your exact needs.
+    ///
+    /// [`push`]: TinyVec::push
+    /// [`extend`]: TinyVec::extend
+    /// [`extend_from_slice`]: TinyVec::extend_from_slice
+    /// [`extend_from_within`]: TinyVec::extend_from_within
+    /// [`insert`]: TinyVec::insert
+    /// [`append`]: TinyVec::append
+    /// [`resize`]: TinyVec::resize
+    /// [`resize_with`]: TinyVec::resize_with
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut v = TinyVec::from([1, 1, 2]);
+    ///
+    /// // Reserve additional space big enough for 10 elements.
+    /// v.reserve(10);
+    ///
+    /// let (init, uninit) = v.split_at_spare_mut();
+    /// let sum = init.iter().copied().sum::<u32>();
+    ///
+    /// // Fill in the next 4 elements.
+    /// uninit[0].write(sum);
+    /// uninit[1].write(sum * 2);
+    /// uninit[2].write(sum * 3);
+    /// uninit[3].write(sum * 4);
+    ///
+    /// // Mark the 4 elements of the vector as being initialized.
+    /// unsafe {
+    ///     let len = v.len();
+    ///     v.set_len(len + 4);
+    /// }
+    ///
+    /// assert_eq!(&v, &[1, 1, 2, 4, 8, 12, 16]);
+    /// ```
+    pub const fn split_at_spare_mut(&mut self) -> (&mut [T], &mut [MaybeUninit<T>]) {
+        let (init, uninit, _) = unsafe { self.split_at_spare_mut_with_len() };
+        (init, uninit)
+    }
+
+    /// Splits the collection into two at the given index.
+    ///
+    /// Returns a newly allocated vector containing the elements in the range
+    /// `[at, len)`. After the call, the original vector will be left containing
+    /// the elements `[0, at)` with its previous capacity unchanged.
+    ///
+    /// - If you want to take ownership of the entire contents and capacity of
+    ///   the vector, see [`mem::take`] or [`mem::replace`].
+    /// - If you don't need the returned vector at all, see [`TinyVec::truncate`].
+    /// - If you want to take ownership of an arbitrary subslice, or you don't
+    ///   necessarily want to store the removed items in a vector, see [`TinyVec::drain`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `at > len`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from(['a', 'b', 'c']);
+    /// let vec2 = vec.split_off(1);
+    /// assert_eq!(vec, ['a']);
+    /// assert_eq!(vec2, ['b', 'c']);
+    /// ```
+    pub fn split_off(&mut self, at: usize) -> TinyVec<T , N>  {
+        if at >= self.len() {
+            panic!("Index out of bounds");
+        }
+        let other_len = self.len() - at;
+        let mut other = TinyVec::<T, N>::with_capacity(other_len);
+
+        unsafe {
+            let src = self.as_ptr().add(at);
+            let dst = other.as_mut_ptr();
+            ptr::copy_nonoverlapping(src, dst, other_len);
+            other.set_len(other_len);
+            self.len.sub(other_len);
+        }
+        other
+    }
+
+    /// Consumes and leaks the `TinyVec`, returning a mutable reference to the contents,
+    /// `&'a mut [T]`.
+    ///
+    /// Note that the type `T` must outlive the chosen lifetime `'a`. If the type
+    /// has only static references, or none at all, then this may be chosen to be
+    /// `'static`.
+    ///
+    /// This method shrinks the buffer, and moves it to the heap in case it lived
+    /// on the stack.
+    ///
+    /// This function is mainly useful for data that lives for the remainder of
+    /// the program's life. Dropping the returned reference will cause a memory
+    /// leak.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let x = tiny_vec::TinyVec::from([1, 2, 3]);
+    ///
+    /// let static_ref: &'static mut [usize] = x.leak();
+    /// static_ref[0] += 1;
+    ///
+    /// assert_eq!(static_ref, &[2, 2, 3]);
+    /// # // FIXME(https://github.com/rust-lang/miri/issues/3670):
+    /// # // use -Zmiri-disable-leak-check instead of unleaking in tests meant to leak.
+    /// # drop(unsafe { Box::from_raw(static_ref) });
+    /// ```
+    pub fn leak<'a>(self) -> &'a mut [T]
+    where
+        T: 'a
+    {
+        let mut slf = ManuallyDrop::new(self);
+        unsafe {
+            let len = slf.len();
+            slf.shrink_to_fit_heap_only();
+            slf.move_to_heap_exact();
+            let ptr = slf.as_mut_ptr();
+            slice::from_raw_parts_mut(ptr, len)
+        }
+    }
+
+    /// Moves all the elements of `other` into `self`, leaving `other` empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new capacity exceeds `isize::MAX` _bytes_.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3]);
+    /// let mut vec2 = TinyVec::from([4, 5, 6]);
+    /// vec.append(&mut vec2);
+    /// assert_eq!(vec, [1, 2, 3, 4, 5, 6]);
+    /// assert_eq!(vec2, []);
+    /// ```
+    pub fn append<const M: usize>(&mut self, other: &mut TinyVec<T, M>) {
+       unsafe {
+           let other_len = other.len();
+           self.reserve(other_len);
+
+           let src = other.as_slice().as_ptr();
+           let dst = self.as_mut_ptr().add(self.len());
+           ptr::copy(src, dst, other_len);
+
+           other.set_len(0);
+           self.len.add(other_len);
+       }
+    }
+
     /// Converts this [TinyVec] into a boxed slice
     ///
     /// # Example
@@ -1393,18 +1597,18 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(&b[..], [1, 2, 3, 4]);
     /// ```
     pub fn into_boxed_slice(self) -> Box<[T]> {
-        let mut vec = ManuallyDrop::new(self);
+        let mut slf = ManuallyDrop::new(self);
 
-        if vec.lives_on_stack() {
-            unsafe { vec.switch_to_heap(0, true) };
+        if slf.lives_on_stack() {
+            unsafe { slf.switch_to_heap(0, true) };
         }
-        debug_assert!(!vec.lives_on_stack());
+        debug_assert!(!slf.lives_on_stack());
 
-        let len = vec.len();
-        unsafe { vec.inner.raw.shrink_to_fit(len); }
-        debug_assert_eq!(len, vec.capacity());
+        let len = slf.len();
+        slf.shrink_to_fit_heap_only();
+        debug_assert_eq!(len, slf.capacity());
 
-        let ptr = vec.as_mut_ptr();
+        let ptr = slf.as_mut_ptr();
         unsafe {
             let slice = slice::from_raw_parts_mut(ptr, len);
             Box::from_raw(slice)
@@ -1424,10 +1628,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// ```
     pub fn into_vec(self) -> Vec<T> {
         let mut vec = ManuallyDrop::new(self);
-
-        if vec.lives_on_stack() {
-            unsafe { vec.switch_to_heap(0, false) };
-        }
+        vec.move_to_heap();
 
         let ptr = vec.as_mut_ptr();
         let len = vec.len();
@@ -1518,7 +1719,7 @@ impl<T: Clone, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
 
             self.reserve(end - start);
 
-            let (slice, spare, len) = unsafe { self.split_at_spare() };
+            let (slice, spare, len) = unsafe { self.split_at_spare_mut_with_len() };
             let slice = &slice[start..end];
 
             for (src, dst) in slice.iter().zip(spare.iter_mut()) {
