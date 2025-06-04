@@ -1335,6 +1335,52 @@ impl<T, const N: usize> TinyVec<T, N> {
         self.len.add(new_len);
     }
 
+    /// Retains in this vector only the elements that match
+    /// the given predicate
+    ///
+    /// This is the same as calling
+    /// `self.extract_if(.., |e| !pred(e)).for_each(|e| drop(e))`
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4, 5, 6, 7, 8]);
+    /// vec.retain(|&n| n % 2 == 0);
+    /// assert_eq!(vec, &[2, 4, 6, 8]);
+    /// ```
+    pub fn retain<F>(&mut self, mut pred: F)
+    where
+        F: FnMut(&T) -> bool
+    {
+        self.retain_mut(|e| pred(e));
+    }
+
+    /// Like [retain](Self::retain), but the predicate receives a
+    /// mutable reference to the element.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4, 5, 6, 7, 8]);
+    /// vec.retain_mut(|n| {
+    ///     let is_even = *n % 2 == 0;
+    ///     *n *= 2;
+    ///     is_even
+    /// });
+    /// assert_eq!(vec, &[4, 8, 12, 16]);
+    /// ```
+    pub fn retain_mut<F>(&mut self, mut pred: F)
+    where
+        F: FnMut(&mut T) -> bool
+    {
+        /* TODO: We can probably optimize this */
+        for e in self.extract_if(.., |e| !pred(e)) {
+            drop(e)
+        }
+    }
+
     /// Converts this [TinyVec] into a boxed slice
     ///
     /// # Example
