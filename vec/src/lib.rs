@@ -282,7 +282,7 @@ impl<T, const N: usize> TinyVec<T, N> {
 
         let mut rv = unsafe { self.inner.raw };
 
-        let stack = [ const { MaybeUninit::uninit() }; N ];
+        let stack = [const { MaybeUninit::uninit() }; N];
 
         unsafe {
             let src = rv.ptr.as_ptr();
@@ -309,7 +309,6 @@ impl<T, const N: usize> TinyVec<T, N> {
             (slice, spare_slice, &mut self.len)
         }
     }
-
 }
 
 impl<T, const N: usize> TinyVec<T, N> {
@@ -790,6 +789,37 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    /// Removes and returns the last element from a vector if the `predicate`
+    /// returns true, or [None] if the predicate returns false or the vector
+    /// is empty (the predicate will not be called in that case).
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4]);
+    /// let pred = |x: &mut i32| *x % 2 == 0;
+    ///
+    /// assert_eq!(vec.pop_if(pred), Some(4));
+    /// assert_eq!(vec, [1, 2, 3]);
+    /// assert_eq!(vec.pop_if(pred), None);
+    /// ```
+    pub fn pop_if<F>(&mut self, predicate: F) -> Option<T>
+    where
+        F: FnOnce(&mut T) -> bool
+    {
+        let len = self.len();
+        if len == 0 { return None }
+
+        unsafe {
+            let last = self.as_mut_ptr().add(len - 1);
+            predicate(&mut *last).then(|| {
+                self.len.sub(1);
+                last.read()
+            })
+        }
+    }
+
     /// Inserts an element in the given index position
     ///
     /// This operation has a worst case time complexity of O(n),
@@ -1107,6 +1137,44 @@ impl<T, const N: usize> TinyVec<T, N> {
         if index >= self.len.get() { return None }
         /* SAFETY: We've just checked that index is < self.len */
         Some(unsafe { self.remove_unchecked(index) })
+    }
+
+    /// Removes and returns the element at the given `index` from a `self`
+    /// if the `predicate` returns true, or [None] if the predicate returns
+    /// false or the `index` is out of bounds (the predicate will not be called
+    /// in that case).
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::from([1, 2, 3, 4]);
+    /// let pred = |x: &mut i32| *x % 2 == 0;
+    ///
+    /// assert_eq!(vec.remove_if(1, pred), Some(2));
+    /// assert_eq!(vec, [1, 3, 4]);
+    /// assert_eq!(vec.remove_if(0, pred), None);
+    /// ```
+    pub fn remove_if<F>(&mut self, index: usize, predicate: F) -> Option<T>
+    where
+        F: FnOnce(&mut T) -> bool
+    {
+        let len = self.len.get();
+        if index >= len { return None }
+
+        unsafe {
+            let ptr = self.as_mut_ptr().add(index);
+            predicate(&mut *ptr).then(|| {
+                let elem = ptr.read();
+                ptr::copy(
+                    ptr.add(1),
+                    ptr,
+                    len - index - 1
+                );
+                self.len.sub(1);
+                elem
+            })
+        }
     }
 
     /// Swaps the elements on index a and b
@@ -1537,6 +1605,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(vec, ['a']);
     /// assert_eq!(vec2, ['b', 'c']);
     /// ```
+    #[must_use = "use `.truncate()` if you don't need the other half"]
     pub fn split_off(&mut self, at: usize) -> TinyVec<T , N>  {
         if at >= self.len() {
             panic!("Index out of bounds");

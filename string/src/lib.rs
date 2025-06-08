@@ -194,6 +194,58 @@ impl<const N: usize> TinyString<N> {
         self.buf.as_slice()
     }
 
+    /// Returns the string as a byte slice
+    ///
+    /// Returns the string as a mutable bytes slice
+    ///
+    /// # Safety
+    /// Modifying this byte slice is dangerous, because it can leave the
+    /// buffer on an inconsistent state.
+    /// Strings must be valid UTF8. So manually changing the byte contents
+    /// of the string could lead to bugs.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut s = TinyString::<10>::from("hello");
+    /// unsafe {
+    ///     let slice = s.as_mut_bytes();
+    ///     assert_eq!(&[104, 101, 108, 108, 111][..], &slice[..]);
+    ///     slice.reverse();
+    /// }
+    /// assert_eq!(s, "olleh");
+    /// ```
+    #[inline]
+    pub const unsafe fn as_mut_bytes(&mut self) -> &mut [u8] {
+        self.buf.as_mut_slice()
+    }
+
+    /// Returns a mutable reference to the contents of this `TinyString`
+    ///
+    /// # Safety
+    /// Modifying this [TinyVec] is dangerous, because it can leave the
+    /// buffer on an inconsistent state.
+    /// Strings must be valid UTF8. So mutating the vector without respecting
+    /// that could lead to bugs.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut s = TinyString::<10>::from("hello");
+    /// unsafe {
+    ///     let vec = s.as_mut_vec();
+    ///     assert_eq!(&[104, 101, 108, 108, 111][..], &vec[..]);
+    ///     vec.drain(1..3);
+    /// }
+    /// assert_eq!(s, "hlo");
+    /// ```
+    #[inline]
+    pub const unsafe fn as_mut_vec(&mut self) -> &mut TinyVec<u8, N> {
+        &mut self.buf
+    }
+
     /// Pushes a character into the string
     pub fn push(&mut self, c: char) {
         let len = c.len_utf8();
