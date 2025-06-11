@@ -19,6 +19,49 @@
 //! This struct provides a vec-like API, but performs small-vector optimization.
 //! This means that a `TinyVec<T, N>` stores up to N elements on the stack.
 //! If the vector grows bigger than that, it moves the contents to the heap.
+#![cfg_attr(not(feature = "alloc"), doc = "
+# WARNING
+The `alloc` feature is disabled. This means that a `TinyVec` won't be able to
+grow over it's stack capacity.
+
+The following functions from [TinyVec] can cause the program to panic if the vector exceeds its
+capacity.
+- [with_capacity]
+- [from_array](TinyVec::from_array)
+- [from_tiny_vec](TinyVec::from_tiny_vec)
+- [from_slice_copied](TinyVec::from_slice_copied)
+- [reserve]
+- [reserve_exact]
+- [push]
+- [push_unchecked](TinyVec::push_unchecked)
+- [insert](TinyVec::insert)
+- [insert_unchecked](TinyVec::insert_unchecked)
+- [insert_slice](TinyVec::insert_slice)
+- [insert_slice_copied](TinyVec::insert_slice_copied)
+- [insert_iter](TinyVec::insert_iter)
+- [resize](TinyVec::resize)
+- [reserve](TinyVec::reserve)
+- [resize_with](TinyVec::resize_with)
+- [resize_zeroed](TinyVec::resize_zeroed)
+- [extend_from_slice](TinyVec::extend_from_slice)
+- [extend_from_slice_copied](TinyVec::extend_from_slice_copied)
+- [extend_from_within](TinyVec::extend_from_within)
+- [extend_from_within_copied](TinyVec::extend_from_within_copied)
+- [append](TinyVec::append)
+
+## Alternatives
+| May Panic | No Panic |
+| --------- | -------- |
+|  [push]   | [push_within_capacity](TinyVec::push_within_capacity) |
+|  [reserve]   | [try_reserve](TinyVec::try_reserve) |
+|  [reserve_exact]   | [try_reserve_exact](TinyVec::try_reserve) |
+| [with_capacity] | [try_with_capacity](TinyVec::try_with_capacity) |
+
+[push]: TinyVec::push
+[reserve]: TinyVec::reserve
+[reserve_exact]: TinyVec::reserve_exact
+[with_capacity]: TinyVec::with_capacity
+")]
 //!
 //! # Example
 //! ```
@@ -76,7 +119,7 @@ use extract_if::ExtractIf;
 
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
-use core::ops::{Range, Bound, Deref, DerefMut, RangeBounds};
+use core::ops::{Bound, Deref, DerefMut, Range, RangeBounds};
 use core::ptr::NonNull;
 use core::{fmt, ptr};
 use core::slice;
@@ -126,6 +169,7 @@ impl Length {
     }
 
     #[inline(always)]
+    #[cfg(feature = "alloc")]
     const fn new_heap(len: usize) -> Self {
         Self(len << 1 | 0b1)
     }
@@ -141,6 +185,7 @@ impl Length {
     }
 
     #[inline(always)]
+    #[cfg(feature = "alloc")]
     const fn set_stack(&mut self) {
         self.0 &= 0b0;
     }
@@ -283,6 +328,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     unsafe fn switch_to_stack(&mut self) {
         debug_assert!(!self.lives_on_stack());
 
@@ -330,6 +376,15 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Creates a new [TinyVec] with the specified initial capacity
     pub fn with_capacity(cap: usize) -> Self {
+        Self::try_with_capacity(cap).unwrap_or_else(|err| err.handle())
+    }
+
+    /// Like [with_capacity](Self::with_capacity), but it returns a [Result].
+    ///
+    /// If an allocation error hapens when reserving the memory, returns
+    /// a [ResizeError] unlike [with_capacity](Self::with_capacity), which
+    /// panics in such case.
+    pub fn try_with_capacity(cap: usize) -> Result<Self,ResizeError> {
         let mut len = Length(0);
         let inner = if cap <= N {
             let s = [const { MaybeUninit::uninit() }; N];
@@ -339,11 +394,11 @@ impl<T, const N: usize> TinyVec<T, N> {
         } else {
             len.set_heap();
             TinyVecInner {
-                raw: RawVec::with_capacity(cap)
+                raw: RawVec::try_with_capacity(cap)?
             }
         };
 
-        Self { inner, len }
+        Ok(Self { inner, len })
     }
 
     /// Creates a new [TinyVec] from the given array
@@ -500,21 +555,25 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// /* v3 must be heap-allocated, since it can only store 2 elements
     ///    on the stack, and v1 has 3*/
     /// assert!(!v3.lives_on_stack());
-    ///
     /// ```
     pub fn from_tiny_vec<const M: usize>(mut vec: TinyVec<T, M>) -> Self {
         let len = vec.len();
         if len > N && len > M {
-            /* If the buffer must be on the heap on both src and dest,
-             * just copy the RawVec from vec to Self */
-            let tv = Self {
-                len: Length::new_heap(len),
-                inner: TinyVecInner {
-                    raw: unsafe { vec.inner.raw }
-                }
-            };
-            mem::forget(vec);
-            return tv
+            #[cfg(feature = "alloc")] {
+                /* If the buffer must be on the heap on both src and dest,
+                * just copy the RawVec from vec to Self */
+                let tv = Self {
+                    len: Length::new_heap(len),
+                    inner: TinyVecInner {
+                        raw: unsafe { vec.inner.raw }
+                    }
+                };
+                mem::forget(vec);
+                return tv
+            }
+            #[cfg(not(feature = "alloc"))]
+            unreachable!("The length of vec won't be higher that it's capacity, \
+                so this branch will NEVER be reached");
         }
 
         let mut tv = Self::with_capacity(len);
@@ -886,7 +945,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         if index > self.len.get() {
             return Err(elem)
         }
-        unsafe { self.insert_unckecked(index, elem); }
+        unsafe { self.insert_unchecked(index, elem); }
         Ok(())
     }
 
@@ -894,7 +953,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// # Safety
     /// The index should be <= self.len
-    pub unsafe fn insert_unckecked(&mut self, index: usize, elem: T) {
+    pub unsafe fn insert_unchecked(&mut self, index: usize, elem: T) {
         self.reserve(1);
         unsafe {
             let ptr = self.as_mut_ptr();
@@ -1278,6 +1337,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// If you need a function that doesn't move the buffer to the stack,
     /// use the [shrink_to_fit_heap_only](Self::shrink_to_fit_heap_only) function.
+    #[cfg(feature = "alloc")]
     pub fn shrink_to_fit(&mut self) {
         if self.len.is_stack() { return }
 
@@ -1291,12 +1351,14 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Moves this `TinyVec` to the heap
+    #[cfg(feature = "alloc")]
     pub fn move_to_heap(&mut self) {
         self.try_move_to_heap().unwrap_or_else(|err| err.handle());
     }
 
     /// Like [move_to_heap](Self::move_to_heap), but returns a result
     /// in case the allocation fail
+    #[cfg(feature = "alloc")]
     pub fn try_move_to_heap(&mut self) -> Result<(), ResizeError> {
         if self.lives_on_stack() {
             unsafe { self.switch_to_heap(0, false)? };
@@ -1306,12 +1368,14 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Moves this `TinyVec` to the heap, without allocating more
     /// than `self.len` elements
+    #[cfg(feature = "alloc")]
     pub fn move_to_heap_exact(&mut self) {
         self.try_move_to_heap_exact().unwrap_or_else(|err| err.handle());
     }
 
     /// Like [move_to_heap_exact](Self::move_to_heap_exact), but returns a result
     /// in case the allocation fail
+    #[cfg(feature = "alloc")]
     pub fn try_move_to_heap_exact(&mut self) -> Result<(), ResizeError> {
         if self.lives_on_stack() {
             unsafe { self.switch_to_heap(0, true)? };
@@ -1324,6 +1388,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// Unlike [shrink_to_fit](Self::shrink_to_fit), this function doesn't
     /// move the buffer to the stack, even if the length of `self`, could
     /// fit on the stack space.
+    #[cfg(feature = "alloc")]
     pub fn shrink_to_fit_heap_only(&mut self) {
         if !self.len.is_stack() {
             unsafe { self.inner.raw.shrink_to_fit(self.len.get()); };
@@ -1471,9 +1536,24 @@ impl<T, const N: usize> TinyVec<T, N> {
         T: Copy
     {
         let len = s.len();
+        self.reserve(len);
+        unsafe { self.extend_from_slice_copied_unchecked(s); }
+    }
+
+    /// Like (extend_from_slice_copied)(Self::extend_from_slice_copied), but
+    /// without checking the capacity
+    ///
+    /// # Safety
+    /// This `TinyVec` must have enought space for all the elements in this slice.
+    /// If `self.len()` + `s.len()` exceeds the `self.capacity()`, the behaviour is undefined.
+    pub const unsafe fn extend_from_slice_copied_unchecked(&mut self, s: &[T])
+    where
+        T: Copy
+    {
+        let len = s.len();
         let src = s.as_ptr();
 
-        self.reserve(len);
+        debug_assert!(self.len() + len <= self.capacity());
 
         unsafe {
             ptr::copy(
@@ -1707,6 +1787,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// # // use -Zmiri-disable-leak-check instead of unleaking in tests meant to leak.
     /// # drop(unsafe { Box::from_raw(static_ref) });
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn leak<'a>(self) -> &'a mut [T]
     where
         T: 'a

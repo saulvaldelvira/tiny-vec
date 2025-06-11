@@ -20,6 +20,40 @@
 //! This means that a `TinyString<N>` stores up to N bytes on the stack.
 //! If the string grows bigger than that, it moves the contents to the heap.
 //!
+#![cfg_attr(not(feature = "alloc"), doc = "
+# WARNING
+The `alloc` feature is disabled. This means that a `TinyString` won't be able to
+grow over it's stack capacity.
+
+The following functions from [TinyString] can cause the program to panic if the string
+exceeds its capacity.
+- [with_capacity]
+- [repeat](TinyString::repeat)
+- [push]
+- [push_str]
+- [reserve]
+- [reserve_exact]
+- [extend_from_within](TinyString::extend_from_within)
+- [insert](TinyString::insert)
+- [insert_str](TinyString::insert_str)
+
+## Alternatives
+| May Panic | No Panic |
+| --------- | -------- |
+|  [push]   | [push_within_capacity](TinyString::push_within_capacity) |
+|  [push_str]   | [push_within_capacity](TinyString::push_str_within_capacity) |
+|  [reserve]   | [try_reserve](TinyString::try_reserve) |
+| [with_capacity] | [try_with_capacity](TinyString::try_with_capacity) |
+| [reserve] | [try_reserve](TinyString::try_reserve) |
+| [reserve_exact] | [try_reserve_exact](TinyString::try_reserve_exact) |
+
+[push]: TinyString::push
+[push_str]: TinyString::push_str
+[reserve]: TinyString::reserve
+[reserve_exact]: TinyString::reserve_exact
+[with_capacity]: TinyString::with_capacity
+")]
+//!
 //! # Example
 //! ```
 //! use tiny_str::TinyString;
@@ -40,11 +74,14 @@
 //! ```
 //!
 //! # Memory layout
-//! TinyString is based on [TinyVec], just like [alloc::string::String] if based
-//! on [alloc::vec::Vec].
+//! [TinyString] is based on [TinyVec], just like [String] is based on [Vec].
 //!
 //! You can read the [tiny_vec] crate documentation to learn about the internal
 //! representation of the data.
+//!
+#![cfg_attr(not(feature = "alloc"), doc = "
+[String]: <https://doc.rust-lang.org/alloc/string/struct.String.html>
+[Vec]: <https://doc.rust-lang.org/alloc/vec/struct.Vec.html>")]
 
 #![no_std]
 
@@ -59,7 +96,8 @@ extern crate alloc;
 #[cfg(feature = "alloc")]
 use alloc::{
     vec::Vec,
-    boxed::Box
+    boxed::Box,
+    string::String,
 };
 
 use tiny_vec::TinyVec;
@@ -112,6 +150,15 @@ impl<const N: usize> TinyString<N> {
     /// Creates a new [TinyString] with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self { buf: TinyVec::with_capacity(cap) }
+    }
+
+    /// Like [with_capacity](Self::with_capacity), but it returns a [Result].
+    ///
+    /// If an allocation error hapens when reserving the memory, returns
+    /// a [ResizeError] unlike [with_capacity](Self::with_capacity), which
+    /// panics in such case.
+    pub fn try_with_capacity(cap: usize) -> Result<Self,ResizeError> {
+        Ok(Self { buf: TinyVec::try_with_capacity(cap)? })
     }
 
     /// Creates a new [TinyString] from the given utf8 buffer.
@@ -263,6 +310,27 @@ impl<const N: usize> TinyString<N> {
         }
     }
 
+    /// Tries to push a character. If the string doesn't have enough capacity to store
+    /// the new char, returns an [Err] variant.
+    ///
+    /// # Errors
+    /// If pushing the character would've caused the buffer to grow.
+    pub fn push_within_capacity(&mut self, c: char) -> Result<(), char> {
+        let len = c.len_utf8();
+        if self.buf.len() + len > self.buf.capacity() {
+            return Err(c)
+        }
+        if len == 1 {
+            unsafe { self.buf.push_unchecked(c as u8) };
+        } else {
+            let mut buf = [0_u8; 4];
+            c.encode_utf8(&mut buf);
+            unsafe { self.buf.extend_from_slice_copied_unchecked(&buf[..len]) };
+        }
+        Ok(())
+    }
+
+
     /// Returns the last char of this string, if present
     ///
     /// # Example
@@ -291,8 +359,23 @@ impl<const N: usize> TinyString<N> {
         self.buf.extend_from_slice_copied(s.as_bytes());
     }
 
+    /// Tries to push a str slice. If this `TinyString` doesn't have enough
+    /// capacity to store the new slice, returns an [Err] variant.
+    ///
+    /// # Errors
+    /// If pushing the string would've caused the buffer to grow.
+    pub fn push_str_within_capacity<'a>(&mut self, s: &'a str) -> Result<(), &'a str> {
+        if self.buf.len() + s.len() > self.buf.capacity() {
+            Err(s)
+        } else {
+            unsafe { self.buf.extend_from_slice_copied_unchecked(s.as_bytes()) };
+            Ok(())
+        }
+    }
+
     /// Shrinks the capacity of this string to fit exactly it's length
     #[inline]
+    #[cfg(feature = "alloc")]
     pub fn shrink_to_fit(&mut self) {
         self.buf.shrink_to_fit();
     }
@@ -406,6 +489,7 @@ impl<const N: usize> TinyString<N> {
     /// # // use -Zmiri-disable-leak-check instead of unleaking in tests meant to leak.
     /// # drop(unsafe{Box::from_raw(static_ref)})
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn leak<'a>(mut self) -> &'a mut str {
         self.buf.move_to_heap_exact();
         self.buf.shrink_to_fit_heap_only();
@@ -574,6 +658,15 @@ impl<const N: usize> TryFrom<Vec<u8>> for TinyString<N> {
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         str::from_utf8(value.as_slice())?;
         Ok(unsafe { Self::from_utf8_unchecked(TinyVec::from_vec(value)) })
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const N: usize> From<String> for TinyString<N> {
+    fn from(value: String) -> Self {
+        let vec = Vec::from(value);
+        let vec = TinyVec::<_, N>::from_vec(vec);
+        unsafe { Self::from_utf8_unchecked(vec) }
     }
 }
 

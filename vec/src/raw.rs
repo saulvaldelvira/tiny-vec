@@ -55,12 +55,12 @@ impl ResizeError {
 
 #[cfg(feature = "alloc")]
 impl<T: Sized> RawVec<T> {
-    pub fn with_capacity(cap: usize) -> Self {
+    pub fn try_with_capacity(cap: usize) -> Result<Self,ResizeError> {
         let mut vec = Self::new();
         if mem::size_of::<T>() != 0 {
-            vec.resize_buffer(cap).unwrap_or_else(|err| err.handle());
+            vec.resize_buffer(cap)?;
         }
-        vec
+        Ok(vec)
     }
     fn resize_buffer(&mut self, new_cap: usize) -> Result<(), ResizeError> {
         // since we set the capacity to usize::MAX when T has size 0,
@@ -127,7 +127,7 @@ impl<T: Sized> RawVec<T> {
 #[cfg(not(feature = "alloc"))]
 #[allow(unused)]
 impl<T: Sized> RawVec<T> {
-    pub fn with_capacity(cap: usize) -> Self {
+    pub fn try_with_capacity(cap: usize) -> Result<Self,ResizeError> {
         panic!("Alloc is not enabled. Can't switch the buffer to the heap")
     }
     fn resize_buffer(&mut self, new_cap: usize) {
