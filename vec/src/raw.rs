@@ -1,4 +1,6 @@
+#[cfg(feature = "alloc")]
 extern crate alloc as _alloc;
+#[cfg(feature = "alloc")]
 use _alloc::alloc::{self,Layout};
 
 use core::mem;
@@ -11,6 +13,7 @@ pub struct RawVec<T> {
 
 /// Returns the next capacity value
 #[inline(always)]
+#[cfg(feature = "alloc")]
 const fn next_cap(cap: usize) -> usize {
     if cap == 0 { 1 } else { cap * 2 }
 }
@@ -23,6 +26,10 @@ impl<T: Sized> RawVec<T> {
             cap: cap as usize,
         }
     }
+}
+
+#[cfg(feature = "alloc")]
+impl<T: Sized> RawVec<T> {
     pub fn with_capacity(cap: usize) -> Self {
         let mut vec = Self::new();
         if mem::size_of::<T>() != 0 {
@@ -78,6 +85,30 @@ impl<T: Sized> RawVec<T> {
                 alloc::dealloc(ptr, layout);
             }
         }
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
+#[allow(unused)]
+impl<T: Sized> RawVec<T> {
+    pub fn with_capacity(cap: usize) -> Self {
+        panic!("Alloc is not enabled. Can't switch the buffer to the heap")
+    }
+    fn resize_buffer(&mut self, new_cap: usize) {
+        panic!("Alloc is not enabled. Can't switch the buffer to the heap")
+    }
+    pub fn expand_if_needed(&mut self, len: usize, n: usize) {
+        panic!("Alloc is not enabled. Can't switch the buffer to the heap")
+    }
+    #[inline]
+    pub fn expand_if_needed_exact(&mut self, len: usize, n: usize) {
+        panic!("Alloc is not enabled. Can't switch the buffer to the heap")
+    }
+    pub fn shrink_to_fit(&mut self, len: usize) {
+        panic!("Alloc is not enabled. Can't switch the buffer to the heap")
+    }
+    pub unsafe fn destroy(&mut self) {
+        panic!("Alloc is not enabled. Can't switch the buffer to the heap")
     }
 }
 

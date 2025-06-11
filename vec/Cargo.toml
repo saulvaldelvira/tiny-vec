@@ -10,5 +10,6 @@ readme.workspace = true
 description = "Small vector optimization"
 
 [features]
-default = []
+default = ["alloc"]
+alloc = []
 use-nightly-features = []

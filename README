@@ -29,6 +29,12 @@ Enables the following functionality
   will default to the maximun capacity that fits in the RawVec's space.
   This default size causes no memory waste when switching to the heap.
 
+alloc: (default: on)
+Links with the alloc crate.
+It is enabled by default, but it can be disabled for enviroments without alloc.
+If alloc is disabled, the vector/string will panic when it attempts to resize
+beyond it's stack-allocated space.
+
 == Contributing ==
 You can send patches to <saul@saulv.es>, or a pull request on the github
 mirror for this repo <https://github.com/saulvaldelvira/tiny-vec>

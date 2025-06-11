@@ -2,8 +2,7 @@
 
 use core::iter::FusedIterator;
 use core::ptr;
-
-use alloc::slice;
+use core::slice;
 
 use crate::TinyVec;
 

@@ -5,9 +5,7 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ops::{Range, RangeBounds};
 use core::ptr::{self, NonNull};
-
-use alloc::{slice, str};
-
+use core::{slice, str};
 use crate::TinyString;
 
 /// A draining iterator for [TinyString]

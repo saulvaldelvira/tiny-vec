@@ -64,9 +64,13 @@
 
 #![no_std]
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
-use alloc::vec::Vec;
-use alloc::boxed::Box;
+#[cfg(feature = "alloc")]
+use alloc::{
+    vec::Vec,
+    boxed::Box
+};
 use drain::Drain;
 use extract_if::ExtractIf;
 
@@ -90,7 +94,6 @@ union TinyVecInner<T, const N: usize> {
 }
 
 impl<T, const N: usize> TinyVecInner<T, N> {
-
     #[inline(always)]
     const unsafe fn as_ptr_stack(&self) -> *const T {
         unsafe { &raw const self.stack as *const T }
@@ -416,6 +419,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// /* vec fits on the stack, so it won't heap-allocate the TinyVec */
     /// assert!(tv.lives_on_stack());
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn from_vec(mut vec: Vec<T>) -> Self {
         let mut tv = Self::with_capacity(vec.len());
         let dst = tv.as_mut_ptr();
@@ -448,6 +452,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// /* This version of from_vec, will use the same buffer vec used */
     /// assert!(!tv.lives_on_stack());
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn from_vec_reuse_buffer(vec: Vec<T>) -> Self {
         let mut vec = ManuallyDrop::new(vec);
 
@@ -463,6 +468,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Creates a TinyVec from a boxed slice of T
+    #[cfg(feature = "alloc")]
     pub fn from_boxed_slice(boxed: Box<[T]>) -> Self {
         let len = boxed.len();
         let ptr = Box::into_raw(boxed);
@@ -1826,6 +1832,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// assert_eq!(&b[..], [1, 2, 3, 4]);
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn into_boxed_slice(self) -> Box<[T]> {
         let mut slf = ManuallyDrop::new(self);
 
@@ -1856,6 +1863,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// assert_eq!(&b[..], &[1, 2, 3, 4]);
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn into_vec(self) -> Vec<T> {
         let mut vec = ManuallyDrop::new(self);
         vec.move_to_heap();
@@ -2050,9 +2058,13 @@ macro_rules! impl_from_call {
     };
 }
 
+#[cfg(feature = "alloc")]
 impl_from_call! {
     Vec<T> => from_vec,
     Box<[T]> => from_boxed_slice,
+}
+
+impl_from_call! {
     [T; N] => from_array_eq_size,
 
     where { T: Clone } &[T] => from_slice,
@@ -2077,6 +2089,7 @@ impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T, const N: usize> From<TinyVec<T, N>> for Vec<T> {
     #[inline]
     fn from(value: TinyVec<T, N>) -> Self {

@@ -13,7 +13,9 @@ description = "Small string optimization"
 path = "../vec"
 package = "tiny-vec"
 version = ">=0.1.0"
+default-features = false
 
 [features]
-default = []
+default = ["alloc"]
+alloc = ["tiny-vec/alloc"]
 use-nightly-features  = ["tiny-vec/use-nightly-features"]

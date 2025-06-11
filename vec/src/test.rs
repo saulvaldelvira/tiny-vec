@@ -143,3 +143,31 @@ fn drain_keep_rest() {
 
     assert_eq!(tv.as_slice(), &[0, 1, 2, 5, 6, 7, 8, 9]);
 }
+
+#[cfg(not(feature = "alloc"))]
+mod no_alloc {
+
+    use super::*;
+
+    #[test]
+    fn no_overflow() {
+        let mut tv = TinyVec::<_, 5>::new();
+
+        for n in 0..5 {
+            tv.push(n);
+        }
+
+        assert_eq!(tv, &[0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Alloc is not enabled. Can't switch the buffer to the heap")]
+    fn overflows() {
+        let mut tv = TinyVec::<_, 5>::new();
+
+        for n in 0..10 {
+            tv.push(n);
+        }
+    }
+
+}

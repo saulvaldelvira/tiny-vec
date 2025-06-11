@@ -4,9 +4,7 @@ use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::num::NonZero;
-use core::ptr;
-
-use alloc::slice;
+use core::{ptr, slice};
 
 use crate::raw::RawVec;
 use crate::TinyVec;

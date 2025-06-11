@@ -54,9 +54,13 @@ use core::fmt::{self, Display};
 use core::ops::{Bound, Deref, DerefMut, Range, RangeBounds};
 use core::str::{self, FromStr, Utf8Error};
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
-use alloc::vec::Vec;
-use alloc::boxed::Box;
+#[cfg(feature = "alloc")]
+use alloc::{
+    vec::Vec,
+    boxed::Box
+};
 
 use tiny_vec::TinyVec;
 pub mod iter;
@@ -333,6 +337,7 @@ impl<const N: usize> TinyString<N> {
     /// let b = s.into_boxed_str();
     /// assert_eq!(&*b, "abc");
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn into_boxed_str(self) -> Box<str> {
         let b = self.buf.into_boxed_slice();
         unsafe { alloc::str::from_boxed_utf8_unchecked(b) }
@@ -547,6 +552,7 @@ impl<const N: usize> TryFrom<TinyVec<u8, N>> for TinyString<N> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<const N: usize> TryFrom<Vec<u8>> for TinyString<N> {
     type Error = Utf8Error;
 
@@ -562,12 +568,14 @@ impl<const N: usize> From<TinyString<N>> for TinyVec<u8, N> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<const N: usize> From<TinyString<N>> for Vec<u8> {
     fn from(value: TinyString<N>) -> Self {
         value.buf.into_vec()
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<const N: usize> From<TinyString<N>> for Box<str> {
     fn from(value: TinyString<N>) -> Self {
         value.into_boxed_str()
