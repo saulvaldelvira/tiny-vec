@@ -63,6 +63,7 @@ use alloc::{
 };
 
 use tiny_vec::TinyVec;
+pub use tiny_vec::ResizeError;
 pub mod iter;
 
 pub mod drain;
@@ -319,10 +320,24 @@ impl<const N: usize> TinyString<N> {
         self.buf.reserve(n);
     }
 
+    /// Like [reserve](Self::reserve), but on failure returns an [Err] variant
+    /// with a [ResizeError], instead of panicking.
+    #[inline]
+    pub fn try_reserve(&mut self, n: usize) -> Result<(), ResizeError> {
+        self.buf.try_reserve(n)
+    }
+
     /// Reserves space for exactly n more bytes
     #[inline]
     pub fn reserve_exact(&mut self, n: usize) {
         self.buf.reserve_exact(n);
+    }
+
+    /// Like [reserve_exact](Self::reserve_exact), but on failure returns an [Err] variant
+    /// with a [ResizeError], instead of panicking.
+    #[inline]
+    pub fn try_reserve_exact(&mut self, n: usize) -> Result<(), ResizeError> {
+        self.buf.try_reserve_exact(n)
     }
 
     /// Converts this TinyString into a boxed str

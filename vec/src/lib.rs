@@ -83,6 +83,7 @@ use core::slice;
 
 mod raw;
 use raw::RawVec;
+pub use raw::ResizeError;
 
 pub mod iter;
 pub mod drain;
@@ -262,14 +263,14 @@ pub struct TinyVec<T,
 
 impl<T, const N: usize> TinyVec<T, N> {
 
-    unsafe fn switch_to_heap(&mut self, n: usize, exact: bool) {
+    unsafe fn switch_to_heap(&mut self, n: usize, exact: bool) -> Result<(), ResizeError> {
         debug_assert!(self.lives_on_stack());
 
         let mut vec = RawVec::new();
         if exact {
-            vec.expand_if_needed_exact(0, self.len.get() + n);
+            vec.try_expand_if_needed_exact(0, self.len.get() + n)?;
         } else {
-            vec.expand_if_needed(0, self.len.get() + n);
+            vec.try_expand_if_needed(0, self.len.get() + n)?;
         }
         unsafe {
             let src = self.inner.as_ptr_stack();
@@ -278,6 +279,8 @@ impl<T, const N: usize> TinyVec<T, N> {
             self.inner.raw = vec;
         }
         self.len.set_heap();
+
+        Ok(())
     }
 
     unsafe fn switch_to_stack(&mut self) {
@@ -648,6 +651,10 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Reserves space for, at least, n elements
     ///
+    /// # Panics
+    /// If an allocation error happens. For a non-panicking version
+    /// see [try_reserve](Self::try_reserve)
+    ///
     /// # Example
     /// ```
     /// use tiny_vec::TinyVec;
@@ -661,19 +668,42 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert!(!vec.lives_on_stack());
     /// ```
     pub fn reserve(&mut self, n: usize) {
+        self.try_reserve(n).unwrap_or_else(|err| err.handle());
+    }
+
+    /// Like [reserve](Self::reserve), but on failure returns an [Err] variant
+    /// with a [ResizeError], instead of panicking.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::{TinyVec, ResizeError};
+    ///
+    /// let mut tv = TinyVec::<u64, 10>::new();
+    ///
+    /// assert_eq!(
+    ///     tv.try_reserve(isize::MAX as usize),
+    ///     Err(ResizeError::AllocationExceedsMaximun)
+    /// );
+    /// ```
+    pub fn try_reserve(&mut self, n: usize) -> Result<(), ResizeError> {
         if self.len.is_stack() {
             if self.len.get() + n > N {
-                unsafe { self.switch_to_heap(n, false); }
+                unsafe { self.switch_to_heap(n, false)?; }
             }
         } else {
             unsafe {
-                self.inner.raw.expand_if_needed(self.len.get(), n);
+                self.inner.raw.try_expand_if_needed(self.len.get(), n)?;
             }
         }
+        Ok(())
     }
 
     /// Reserves space for n more elements, but unline
     /// [reserve](Self::reserve), this function doesn't over-allocate.
+    ///
+    /// # Panics
+    /// If an allocation error happens. For a non-panicking version
+    /// see [try_reserve_exact](Self::try_reserve_exact)
     ///
     /// # Example
     /// ```
@@ -688,16 +718,23 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert!(!vec.lives_on_stack());
     /// ```
     pub fn reserve_exact(&mut self, n: usize) {
+        self.try_reserve_exact(n).unwrap_or_else(|err| err.handle())
+    }
+
+    /// Like [resize](Self::resize), but on failure returns an [Err] variant
+    /// with a [ResizeError], instead of panicking.
+    pub fn try_reserve_exact(&mut self, n: usize) -> Result<(), ResizeError> {
         if self.len.is_stack() {
             if self.len.get() + n > N {
-                unsafe { self.switch_to_heap(n, true); }
+                unsafe { self.switch_to_heap(n, true)?; }
             }
         } else {
             let vec = unsafe { &mut self.inner.raw };
             let len = self.len.get();
             let new_cap = vec.cap.max(len + n);
-            vec.expand_if_needed_exact(len, new_cap);
+            vec.try_expand_if_needed_exact(len, new_cap)?;
         }
+        Ok(())
     }
 
     /// Appends an element to the back of the vector
@@ -1255,17 +1292,31 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Moves this `TinyVec` to the heap
     pub fn move_to_heap(&mut self) {
+        self.try_move_to_heap().unwrap_or_else(|err| err.handle());
+    }
+
+    /// Like [move_to_heap](Self::move_to_heap), but returns a result
+    /// in case the allocation fail
+    pub fn try_move_to_heap(&mut self) -> Result<(), ResizeError> {
         if self.lives_on_stack() {
-            unsafe { self.switch_to_heap(0, false) };
+            unsafe { self.switch_to_heap(0, false)? };
         }
+        Ok(())
     }
 
     /// Moves this `TinyVec` to the heap, without allocating more
     /// than `self.len` elements
     pub fn move_to_heap_exact(&mut self) {
+        self.try_move_to_heap_exact().unwrap_or_else(|err| err.handle());
+    }
+
+    /// Like [move_to_heap_exact](Self::move_to_heap_exact), but returns a result
+    /// in case the allocation fail
+    pub fn try_move_to_heap_exact(&mut self) -> Result<(), ResizeError> {
         if self.lives_on_stack() {
-            unsafe { self.switch_to_heap(0, true) };
+            unsafe { self.switch_to_heap(0, true)? };
         }
+        Ok(())
     }
 
     /// Shrinks the capacity of the vector to fit exactly it's length.
@@ -1837,7 +1888,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         let mut slf = ManuallyDrop::new(self);
 
         if slf.lives_on_stack() {
-            unsafe { slf.switch_to_heap(0, true) };
+            unsafe { slf.switch_to_heap(0, true).unwrap_or_else(|err| err.handle()) };
         }
         debug_assert!(!slf.lives_on_stack());
 
