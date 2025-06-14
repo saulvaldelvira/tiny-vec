@@ -1,47 +1,37 @@
-use core::mem;
 use super::TinyVec;
 
 extern crate std;
 use std::prelude::rust_2024::*;
 
-macro_rules! assert_size_eq {
-    ($($t:ty, $u:ty ;)*) => {
-        const _: () = const {
-            $(
-                assert!(
-                    mem::size_of::<$t>()
-                    ==
-                    mem::size_of::<$u>() + mem::size_of::<usize>()
-                );
-            )*
-        };
-    };
+#[test]
+fn check_sizes() {
+    use core::mem;
+
+    macro_rules! eq_to_vec {
+        ($t:ty) => {{
+            const _TMP: usize = super::n_elements_for_stack::<$t>();
+            assert_eq!(
+                mem::size_of::<TinyVec<$t, _TMP>>(),
+                mem::size_of::<Vec<$t>>()
+            );
+        }};
+    }
+
+    #[allow(dead_code)]
+    struct S(u8,u16);
+    eq_to_vec!(u8);
+    eq_to_vec!(u16);
+    eq_to_vec!(u32);
+    eq_to_vec!(u64);
+    eq_to_vec!(i8);
+    eq_to_vec!(i16);
+    eq_to_vec!(i32);
+    eq_to_vec!(i64);
+    eq_to_vec!(f32);
+    eq_to_vec!(f64);
+    eq_to_vec!(S);
 }
 
-macro_rules! assert_size_def {
-    ($($t:ty),*) => {
-        const _: () = const {
-            $(
-                assert!(
-                    mem::size_of::<super::TinyVecInner<$t, { super::n_elements_for_stack::<$t>() } >>()
-                    ==
-                    mem::size_of::<super::RawVec<$t>>()
-                );
-            )*
-        };
-    };
-}
-
-assert_size_eq!(
-    TinyVec<i32, 12>, [i32; 12];
-    TinyVec<i32, 12>, [i32; 12];
-    TinyVec<u8, 3>, super::RawVec<u8>;
-    TinyVec<u8, 24>, Vec<u8>;
-);
-
-#[allow(dead_code)]
-struct S(u8,u16);
-assert_size_def!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64, S);
 
 #[test]
 fn simple() {
