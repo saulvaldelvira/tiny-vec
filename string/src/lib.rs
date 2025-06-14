@@ -105,10 +105,13 @@ pub use tiny_vec::ResizeError;
 pub mod iter;
 
 pub mod drain;
+pub mod cow;
+pub use cow::Cow;
 
 const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
 
 /// A string that can store a small amount of bytes on the stack.
+#[derive(Clone)]
 pub struct TinyString<const N: usize = MAX_N_STACK_ELEMENTS> {
     buf: TinyVec<u8, N>,
 }
@@ -211,6 +214,27 @@ impl<const N: usize> TinyString<N> {
     /// Returns the allocated capacity for this string
     #[inline]
     pub const fn capacity(&self) -> usize { self.buf.capacity() }
+
+    /// Returns true if the string is currently using stack memory.
+    ///
+    /// This means that [Self::len] <= `N`
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut vec = TinyString::<5>::new();
+    ///
+    /// for n in 0..5 {
+    ///     vec.push('a')
+    /// }
+    ///
+    /// assert!(vec.lives_on_stack());
+    /// vec.push('a');
+    /// assert!(!vec.lives_on_stack());
+    /// ```
+    #[inline]
+    pub const fn lives_on_stack(&self) -> bool { self.buf.lives_on_stack() }
 
     /// Returns a str slice
     #[inline]
@@ -689,6 +713,16 @@ impl<const N: usize> From<TinyString<N>> for Box<str> {
         value.into_boxed_str()
     }
 }
+
+#[cfg(feature = "alloc")]
+impl<const N: usize> From<Box<str>> for TinyString<N> {
+    fn from(value: Box<str>) -> Self {
+        let vec = value.as_bytes();
+        let s = TinyVec::from(vec);
+        unsafe { Self::from_utf8_unchecked(s) }
+    }
+}
+
 
 impl<const N: usize> FromIterator<char> for TinyString<N> {
     fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
