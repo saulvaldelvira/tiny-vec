@@ -204,6 +204,24 @@ impl<T, const N: usize> IntoIterator for TinyVec<T, N> {
     }
 }
 
+impl<'a, T, const N: usize> IntoIterator for &'a TinyVec<T, N> {
+    type Item = &'a T;
+    type IntoIter = slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
+impl<'a, T, const N: usize> IntoIterator for &'a mut TinyVec<T, N> {
+    type Item = &'a mut T;
+    type IntoIter = slice::IterMut<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_mut_slice().iter_mut()
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::iter_nth_zero)]
 mod test {
