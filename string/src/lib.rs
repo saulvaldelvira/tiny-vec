@@ -735,19 +735,23 @@ impl<const N: usize> FromIterator<char> for TinyString<N> {
 impl<const N: usize> Extend<char> for TinyString<N> {
     fn extend<T: IntoIterator<Item = char>>(&mut self, iter: T) {
         let iter = iter.into_iter();
-        let cap = match iter.size_hint() {
-            (_, Some(n)) => n,
-            (n, _) => n,
-        };
-        self.reserve(cap);
+        let (lower, _) = iter.size_hint();
+        self.reserve(lower);
         for c in iter {
             self.push(c);
         }
     }
 
     #[cfg(feature = "use-nightly-features")]
+    #[inline]
     fn extend_one(&mut self, item: char) {
         self.push(item);
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    #[inline]
+    fn extend_reserve(&mut self, additional: usize) {
+        self.reserve(additional);
     }
 }
 

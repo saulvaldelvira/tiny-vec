@@ -2026,15 +2026,8 @@ impl<T, const N: usize> Extend<T> for TinyVec<T, N> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
 
-        let (min, max) = iter.size_hint();
-        let reserve = match max {
-            Some(max) => max,
-            None => min,
-        };
-
-        if reserve > 0 {
-            self.reserve(reserve);
-        }
+        let (lower, _) = iter.size_hint();
+        self.reserve(lower);
 
         for elem in iter {
             unsafe { self.push_unchecked(elem); }
