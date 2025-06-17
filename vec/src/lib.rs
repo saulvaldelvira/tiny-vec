@@ -271,7 +271,12 @@ pub const fn n_elements_for_stack<T>() -> usize {
 /// assert_eq!(n_elements_for_bytes::<i32>(17), 4);
 /// ```
 pub const fn n_elements_for_bytes<T>(n: usize) -> usize {
-    n / mem::size_of::<T>()
+    let size = mem::size_of::<T>();
+    if size == 0 {
+        isize::MAX as usize
+    } else {
+        n / size
+    }
 }
 
 fn slice_range<R>(range: R, len: usize) -> Range<usize>
@@ -312,6 +317,7 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     unsafe fn switch_to_heap(&mut self, n: usize, exact: bool) -> Result<(), ResizeError> {
         debug_assert!(self.lives_on_stack());
+        debug_assert_ne!(mem::size_of::<T>(), 0);
 
         let mut vec = RawVec::new();
         if exact {
@@ -333,6 +339,9 @@ impl<T, const N: usize> TinyVec<T, N> {
     #[cfg(feature = "alloc")]
     unsafe fn switch_to_stack(&mut self) {
         debug_assert!(!self.lives_on_stack());
+        debug_assert_ne!(mem::size_of::<T>(), 0,
+            "We shouldn't call switch_to_stack, since T is a ZST, and\
+            shouldn't be moved to the heap in the first place");
 
         let mut rv = unsafe { self.inner.raw };
 
@@ -632,6 +641,9 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// Returns the allocated capacity for this vector
     #[inline]
     pub const fn capacity(&self) -> usize {
+        if mem::size_of::<T>() == 0 {
+            return isize::MAX as usize
+        }
         if self.len.is_stack() {
             N
         } else {
@@ -748,7 +760,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// ```
     pub fn try_reserve(&mut self, n: usize) -> Result<(), ResizeError> {
         if self.len.is_stack() {
-            if self.len.get() + n > N {
+            if self.len.get() + n > self.capacity() {
                 unsafe { self.switch_to_heap(n, false)?; }
             }
         } else {
@@ -786,7 +798,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// with a [ResizeError], instead of panicking.
     pub fn try_reserve_exact(&mut self, n: usize) -> Result<(), ResizeError> {
         if self.len.is_stack() {
-            if self.len.get() + n > N {
+            if self.len.get() + n > self.capacity() {
                 unsafe { self.switch_to_heap(n, true)?; }
             }
         } else {

@@ -134,6 +134,33 @@ fn drain_keep_rest() {
     assert_eq!(tv.as_slice(), &[0, 1, 2, 5, 6, 7, 8, 9]);
 }
 
+#[test]
+fn zst() {
+    #[derive(Clone, Copy)]
+    struct One;
+    impl One {
+        fn one(&self) -> usize { 1 }
+    }
+
+    assert_eq!(super::n_elements_for_stack::<One>(), isize::MAX as usize);
+    assert_eq!(super::n_elements_for_bytes::<One>(919), isize::MAX as usize);
+
+    let mut tv = TinyVec::<One, 10>::new();
+
+    for _ in 0..1000 {
+        tv.push(One);
+    }
+    let mut n = 0;
+    for elem in tv.as_slice() {
+        n += elem.one();
+    }
+
+    assert_eq!(tv.capacity(), isize::MAX as usize);
+    assert_eq!(tv.len(), 1000);
+    assert_eq!(n, 1000);
+    assert!(tv.lives_on_stack());
+}
+
 #[cfg(not(feature = "alloc"))]
 mod no_alloc {
 
