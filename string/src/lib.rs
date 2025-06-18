@@ -105,7 +105,8 @@ pub use tiny_vec::ResizeError;
 pub mod iter;
 
 pub mod drain;
-pub mod cow;
+
+mod cow;
 pub use cow::Cow;
 
 const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();

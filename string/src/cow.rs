@@ -13,7 +13,7 @@ use crate::{TinyString, TinyVec};
 
 /// A Copy-on-Write struct for a TinyVec
 ///
-/// This struct contains either a borrowed reference of [T],
+/// This struct contains either a borrowed reference of `[T]`,
 /// or an owned TinyVec
 ///
 /// # Example

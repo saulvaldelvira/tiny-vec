@@ -127,7 +127,8 @@ use core::slice;
 mod raw;
 use raw::RawVec;
 pub use raw::ResizeError;
-pub mod cow;
+
+mod cow;
 pub use cow::Cow;
 
 pub mod iter;
