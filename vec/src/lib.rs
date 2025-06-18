@@ -230,13 +230,22 @@ impl Length {
 /// ```
 #[macro_export]
 macro_rules! tinyvec {
+    (@one $e:expr) => { 1 };
+    () => {
+        $crate::TinyVec::new()
+    };
     ($elem:expr; $n:expr) => ({
         let mut tv = $crate::TinyVec::new();
         tv.resize($n, $elem);
         tv
     });
-    ($($x:expr),*$(,)?) => ({
-        $crate::TinyVec::from(&[ $( $x ,)*])
+    ($($x:expr),+ $(,)?) => ({
+        let n = const {
+            0 $( + $crate::tinyvec!(@one $x) )+
+        };
+        let mut vec = $crate::TinyVec::with_capacity(n);
+        $(vec.push($x);)+
+        vec
     });
 }
 

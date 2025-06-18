@@ -55,8 +55,12 @@ fn simple() {
 
 #[test]
 fn macro_test() {
-    let tv: TinyVec<i32, 5> = tinyvec![1, 2, 3];
-    assert_eq!(tv.len(), 3);
+    let empty: TinyVec<i32, 10> = tinyvec![];
+    assert_eq!(empty.len(), 0);
+
+    let tv: TinyVec<i32, 5> = tinyvec![1, 2, 3, 4, 5, 6];
+    assert_eq!(tv.len(), 6);
+    assert_eq!(tv.capacity(), 6);
 
     let tv: TinyVec<i32, 5> = tinyvec![10; 20];
     assert_eq!(tv.len(), 20);
