@@ -1136,24 +1136,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         if new_len < self.len() {
             self.truncate(new_len);
         } else {
-            let n = new_len - self.len();
-            self.reserve(n);
-
-            unsafe {
-                let mut ptr = self.as_mut_ptr().add(self.len());
-                let len = &mut self.len;
-
-                for _ in 1..n {
-                    ptr::write(ptr, elem.clone());
-                    ptr = ptr.add(1);
-                    len.add(1);
-                }
-
-                if n > 0 {
-                    ptr::write(ptr, elem);
-                    len.add(1);
-                }
-            }
+            self.resize_impl(new_len, elem);
         }
     }
 
@@ -2078,6 +2061,7 @@ macro_rules! maybe_default {
 trait CopyOptimization<T> {
     fn extend_from_slice_impl(&mut self, s: &[T]);
     fn insert_slice_impl<'a>(&mut self, index: usize, elems: &'a [T]) -> Result<(), &'a [T]>;
+    fn resize_impl(&mut self, new_len: usize, elem: T);
     fn extend_from_within_impl<R>(&mut self, range: R)
     where
         R: RangeBounds<usize>;
@@ -2115,6 +2099,30 @@ impl<T: Clone, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
             }
         }
     }
+
+    maybe_default! {
+        fn resize_impl(&mut self, new_len: usize, elem: T) {
+            let n = new_len - self.len();
+            self.reserve(n);
+
+            unsafe {
+                let mut ptr = self.as_mut_ptr().add(self.len());
+                let len = &mut self.len;
+
+                for _ in 1..n {
+                    ptr::write(ptr, elem.clone());
+                    ptr = ptr.add(1);
+                    len.add(1);
+                }
+
+                if n > 0 {
+                    ptr::write(ptr, elem);
+                    len.add(1);
+                }
+            }
+        }
+    }
+
 }
 
 #[cfg(feature = "use-nightly-features")]
@@ -2138,6 +2146,22 @@ impl<T: Copy, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
         self.extend_from_within_copied(range);
     }
 
+    #[inline]
+    fn resize_impl(&mut self, new_len: usize, elem: T) {
+        let n = new_len - self.len();
+        self.reserve(n);
+
+        unsafe {
+            let mut ptr = self.as_mut_ptr().add(self.len());
+
+            for _ in 0..n {
+                ptr::write(ptr, elem);
+                ptr = ptr.add(1);
+            }
+
+            self.len.add(n);
+        }
+    }
 }
 
 impl<T, const N: usize> Default for TinyVec<T, N> {
