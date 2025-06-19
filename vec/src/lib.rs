@@ -750,6 +750,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert!(vec.capacity() >= 10);
     /// assert!(!vec.lives_on_stack());
     /// ```
+    #[inline]
     pub fn reserve(&mut self, n: usize) {
         self.try_reserve(n).unwrap_or_else(|err| err.handle());
     }
@@ -1538,33 +1539,18 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// ```
     /// [clone]: Clone::clone
     /// [extend_from_slice]: Self::extend_from_slice
+    #[inline]
     pub fn extend_from_slice_copied(&mut self, s: &[T])
     where
         T: Copy
     {
         let len = s.len();
         self.reserve(len);
-        unsafe { self.extend_from_slice_copied_unchecked(s); }
-    }
-
-    /// Like (extend_from_slice_copied)(Self::extend_from_slice_copied), but
-    /// without checking the capacity
-    ///
-    /// # Safety
-    /// This `TinyVec` must have enought space for all the elements in this slice.
-    /// If `self.len()` + `s.len()` exceeds the `self.capacity()`, the behaviour is undefined.
-    pub const unsafe fn extend_from_slice_copied_unchecked(&mut self, s: &[T])
-    where
-        T: Copy
-    {
-        let len = s.len();
-        let src = s.as_ptr();
-
-        debug_assert!(self.len() + len <= self.capacity());
 
         unsafe {
+            /* SAFETY: We've just reserved space for `len` elements */
             ptr::copy(
-                src,
+                s.as_ptr(),
                 self.as_mut_ptr().add(self.len.get()),
                 len
             )

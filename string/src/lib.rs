@@ -195,8 +195,7 @@ impl<const N: usize> TinyString<N> {
     /// assert_eq!(s.as_str(), "abcabcabcabcabc");
     /// ```
     pub fn repeat(slice: &str, n: usize) -> Self {
-        let len = slice.len() * n;
-        let mut s = Self::with_capacity(len);
+        let mut s = Self::with_capacity(slice.len() * n);
         let bytes = slice.as_bytes();
         for _ in 0..n {
             s.buf.extend_from_slice_copied(bytes);
@@ -331,7 +330,7 @@ impl<const N: usize> TinyString<N> {
         } else {
             let mut buf = [0_u8; 4];
             c.encode_utf8(&mut buf);
-            self.buf.extend_from_slice(&buf[..len]);
+            self.buf.extend_from_slice_copied(&buf[..len]);
         }
     }
 
@@ -350,7 +349,7 @@ impl<const N: usize> TinyString<N> {
         } else {
             let mut buf = [0_u8; 4];
             c.encode_utf8(&mut buf);
-            unsafe { self.buf.extend_from_slice_copied_unchecked(&buf[..len]) };
+            self.buf.extend_from_slice_copied(&buf[..len]);
         }
         Ok(())
     }
@@ -393,7 +392,7 @@ impl<const N: usize> TinyString<N> {
         if self.buf.len() + s.len() > self.buf.capacity() {
             Err(s)
         } else {
-            unsafe { self.buf.extend_from_slice_copied_unchecked(s.as_bytes()) };
+            self.buf.extend_from_slice_copied(s.as_bytes());
             Ok(())
         }
     }
