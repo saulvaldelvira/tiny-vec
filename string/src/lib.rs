@@ -195,12 +195,9 @@ impl<const N: usize> TinyString<N> {
     /// assert_eq!(s.as_str(), "abcabcabcabcabc");
     /// ```
     pub fn repeat(slice: &str, n: usize) -> Self {
-        let mut s = Self::with_capacity(slice.len() * n);
-        let bytes = slice.as_bytes();
-        for _ in 0..n {
-            s.buf.extend_from_slice_copied(bytes);
+        Self {
+            buf: TinyVec::repeat(slice.as_bytes(), n)
         }
-        s
     }
 
     /// Returns the number of elements inside this string

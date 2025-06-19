@@ -30,6 +30,7 @@ capacity.
 - [from_array](TinyVec::from_array)
 - [from_tiny_vec](TinyVec::from_tiny_vec)
 - [from_slice_copied](TinyVec::from_slice_copied)
+- [repeat](TinyVec::repeat)
 - [reserve]
 - [reserve_exact]
 - [push]
@@ -638,6 +639,38 @@ impl<T, const N: usize> TinyVec<T, N> {
         let mut v = Self::with_capacity(slice.len());
         v.extend_from_slice_copied(slice);
         v
+    }
+
+    /// Creates a new [TinyVec] by copying the given
+    /// `slice` `n` times.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let vec = TinyVec::<i32, 10>::repeat(
+    ///     &[1, 2, 3, 4],
+    ///     3
+    /// );
+    ///
+    /// assert_eq!(vec, &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
+    /// ```
+    pub fn repeat(slice: &[T], n: usize) -> Self
+    where
+        T: Copy
+    {
+        let mut s = Self::with_capacity(slice.len() * n);
+        let mut dst = s.as_mut_ptr();
+        let src = slice.as_ptr();
+        let len = slice.len();
+        for _ in 0..n {
+            unsafe {
+                ptr::copy(src, dst, len);
+                dst = dst.add(len);
+            }
+        }
+        s.len.set(len * n);
+        s
     }
 
     /// Returns the number of elements inside this vec
