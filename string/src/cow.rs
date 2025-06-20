@@ -101,6 +101,14 @@ impl<'borrow, const N: usize> Cow<'borrow, N> {
             Cow::Owned(tiny_string) => tiny_string.as_str()
         }
     }
+
+    /// Returns `self` as a byte slice
+    pub const fn as_bytes(&self) -> &[u8] {
+        match self {
+            Cow::Borrowed(b) => b.as_bytes(),
+            Cow::Owned(s) => s.as_bytes(),
+        }
+    }
 }
 
 impl<'borrow, const N: usize> Deref for Cow<'borrow, N> {

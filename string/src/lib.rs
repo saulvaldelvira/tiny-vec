@@ -113,7 +113,6 @@ pub use cow::Cow;
 const MAX_N_STACK_ELEMENTS: usize = tiny_vec::n_elements_for_stack::<u8>();
 
 /// A string that can store a small amount of bytes on the stack.
-#[derive(Clone)]
 pub struct TinyString<const N: usize = MAX_N_STACK_ELEMENTS> {
     buf: TinyVec<u8, N>,
 }
@@ -417,6 +416,7 @@ impl<const N: usize> TinyString<N> {
     /// assert!(s.capacity() >= 6);
     /// ```
     #[inline]
+    #[cfg(feature = "alloc")]
     pub fn shrink_to(&mut self, min_capacity: usize) {
         self.buf.shrink_to(min_capacity)
     }
@@ -759,14 +759,29 @@ impl<const N: usize> From<Box<str>> for TinyString<N> {
     }
 }
 
-
-impl<const N: usize> FromIterator<char> for TinyString<N> {
-    fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
-        let mut s = Self::new();
-        s.extend(iter);
-        s
-    }
+macro_rules! impl_from_iter {
+    ($( $( { $($tok:tt)* } )? $t:ty),* $(,)?) => {
+        $(
+            impl< $($($tok)*, )? const N: usize> FromIterator<$t> for TinyString<N> {
+                fn from_iter<T: IntoIterator<Item = $t>>(iter: T) -> Self {
+                    let mut s = Self::new();
+                    s.extend(iter);
+                    s
+                }
+            }
+        )*
+    };
 }
+
+impl_from_iter!(
+    char,
+    {'a} &'a char,
+    {'a} &'a str,
+    {'a, const M: usize} Cow<'a, M>
+);
+
+#[cfg(feature = "alloc")]
+impl_from_iter!(Box<str>);
 
 impl<const N: usize> Extend<char> for TinyString<N> {
     fn extend<T: IntoIterator<Item = char>>(&mut self, iter: T) {
@@ -791,6 +806,24 @@ impl<const N: usize> Extend<char> for TinyString<N> {
     }
 }
 
+impl<'a, const N: usize> Extend<&'a char> for TinyString<N> {
+    fn extend<T: IntoIterator<Item = &'a char>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|slice| self.push(*slice));
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    #[inline]
+    fn extend_one(&mut self, item: &'a char) {
+        self.push(*item);
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    #[inline]
+    fn extend_reserve(&mut self, additional: usize) {
+        self.reserve(additional);
+    }
+}
+
 impl<'a, const N: usize> Extend<&'a str> for TinyString<N> {
     fn extend<T: IntoIterator<Item = &'a str>>(&mut self, iter: T) {
         iter.into_iter().for_each(|slice| self.push_str(slice));
@@ -803,6 +836,7 @@ impl<'a, const N: usize> Extend<&'a str> for TinyString<N> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<const N: usize> Extend<Box<str>> for TinyString<N> {
     fn extend<T: IntoIterator<Item = Box<str>>>(&mut self, iter: T) {
         iter.into_iter().for_each(|slice| self.push_str(&slice));
@@ -815,24 +849,73 @@ impl<const N: usize> Extend<Box<str>> for TinyString<N> {
     }
 }
 
-impl<'a, const N: usize> Extend<Cow<'a, N>> for TinyString<N> {
-    fn extend<T: IntoIterator<Item = Cow<'a, N>>>(&mut self, iter: T) {
+impl<'a, const N: usize, const M: usize> Extend<Cow<'a, M>> for TinyString<N> {
+    fn extend<T: IntoIterator<Item = Cow<'a, M>>>(&mut self, iter: T) {
         iter.into_iter().for_each(|slice| self.push_str(&slice));
     }
 
     #[cfg(feature = "use-nightly-features")]
     #[inline]
-    fn extend_one(&mut self, item: Cow<'a, N>) {
+    fn extend_one(&mut self, item: Cow<'a, M>) {
         self.push_str(&item);
     }
 }
 
-impl<const N: usize, S> PartialEq<S> for TinyString<N>
-where
-    S: AsRef<str>,
-{
-    fn eq(&self, other: &S) -> bool {
-        self.as_str() == other.as_ref()
+impl<const N: usize, const M: usize> PartialEq<TinyString<M>> for TinyString<N> {
+    fn eq(&self, other: &TinyString<M>) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl<const N: usize> Eq for TinyString<N> { }
+
+impl<'a, const N: usize, const M: usize> PartialEq<Cow<'a, M>> for TinyString<N> {
+    fn eq(&self, other: &Cow<'a, M>) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const N: usize> PartialEq<String> for TinyString<N> {
+    fn eq(&self, other: &String) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl<const N: usize, const M: usize> PartialEq<TinyVec<u8, M>> for TinyString<N> {
+    fn eq(&self, other: &TinyVec<u8, M>) -> bool {
+        self.as_bytes() == other.as_slice()
+    }
+}
+
+impl<'a, const N: usize, const M: usize> PartialEq<tiny_vec::Cow<'a, u8, M>> for TinyString<N> {
+    fn eq(&self, other: &tiny_vec::Cow<'a, u8, M>) -> bool {
+        self.as_bytes() == other.as_slice()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const N: usize> PartialEq<Vec<u8>> for TinyString<N> {
+    fn eq(&self, other: &Vec<u8>) -> bool {
+        self.as_bytes() == other.as_slice()
+    }
+}
+
+impl<const N: usize> PartialEq<str> for TinyString<N> {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl<'a, const N: usize> PartialEq<&'a str> for TinyString<N> {
+    fn eq(&self, other: &&'a str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl<const N: usize> PartialEq<[u8]> for TinyString<N> {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.as_bytes() == other
     }
 }
 
@@ -841,8 +924,6 @@ impl<const N: usize> PartialEq<TinyString<N>> for &str {
         self.as_bytes() == other.as_bytes()
     }
 }
-
-impl<const N: usize> Eq for TinyString<N> { }
 
 impl<const N: usize> PartialOrd<TinyString<N>> for TinyString<N> {
     #[inline]
@@ -858,19 +939,34 @@ impl<const N: usize> Ord for TinyString<N> {
     }
 }
 
+impl<const N: usize> Clone for TinyString<N> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self { buf: self.buf.clone() }
+    }
+
+    #[inline]
+    fn clone_from(&mut self, source: &Self) {
+        self.buf.clone_from(&source.buf);
+    }
+}
+
 impl<const N: usize> AsRef<[u8]> for TinyString<N> {
+    #[inline]
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
     }
 }
 
 impl<const N: usize> AsRef<str> for TinyString<N> {
+    #[inline]
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
 impl<const N: usize> AsMut<str> for TinyString<N> {
+    #[inline]
     fn as_mut(&mut self) -> &mut str {
         self.as_mut_str()
     }
@@ -913,6 +1009,18 @@ impl<const N: usize> FromStr for TinyString<N> {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self::from(s))
+    }
+}
+
+impl<const N: usize> core::fmt::Write for TinyString<N> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.push_str(s);
+        Ok(())
+    }
+
+    fn write_char(&mut self, c: char) -> fmt::Result {
+        self.push(c);
+        Ok(())
     }
 }
 

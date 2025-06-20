@@ -46,7 +46,7 @@ impl Display for ResizeError {
             #[cfg(feature = "alloc")]
             ResizeError::AllocationError(layout) => write!(f, "Allocation error for layout ({layout:?})"),
             #[cfg(not(feature = "alloc"))]
-            AllocNotSupported => write!(f, "Alloc is not supported"),
+            ResizeError::AllocNotSupported => write!(f, "Alloc is not supported"),
             ResizeError::CapacityOverflow => write!(f, "Capacity overflow"),
             ResizeError::AllocationExceedsMaximun => write!(f, "Allocation size exceeds maximun"),
         }

@@ -105,6 +105,7 @@ capacity.
 #![cfg_attr(feature = "use-nightly-features", feature(min_specialization, slice_swap_unchecked, generic_const_exprs))]
 #![cfg_attr(feature = "use-nightly-features", feature(extend_one, extend_one_unchecked))]
 #![cfg_attr(feature = "use-nightly-features", feature(iter_advance_by))]
+#![cfg_attr(feature = "use-nightly-features", feature(can_vector, write_all_vectored))]
 
 #![no_std]
 
@@ -113,7 +114,8 @@ extern crate alloc;
 #[cfg(feature = "alloc")]
 use alloc::{
     vec::Vec,
-    boxed::Box
+    boxed::Box,
+    collections::VecDeque,
 };
 use drain::Drain;
 use extract_if::ExtractIf;
@@ -388,6 +390,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    #[cfg(feature = "alloc")]
     fn _shrink(&mut self, cap: usize) {
         assert!(!self.lives_on_stack());
         assert!(cap >= self.len.get());
@@ -1494,6 +1497,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// vec.shrink_to(0);
     /// assert!(vec.capacity() >= 3);
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn shrink_to(&mut self, min_capacity: usize) {
         if !self.lives_on_stack() && self.capacity() > min_capacity {
             let new_cap = usize::max(self.len.get(), min_capacity);
@@ -2171,19 +2175,28 @@ impl<T, const N: usize> Extend<T> for TinyVec<T, N> {
     }
 
     #[cfg(feature = "use-nightly-features")]
+    #[inline]
     fn extend_one(&mut self, item: T) {
         self.push(item);
     }
 
     #[cfg(feature = "use-nightly-features")]
+    #[inline]
     fn extend_reserve(&mut self, additional: usize) {
         self.reserve(additional);
     }
 
     #[cfg(feature = "use-nightly-features")]
+    #[inline]
     unsafe fn extend_one_unchecked(&mut self, item: T) {
         /* SAFETY: The caller guarantees that self.len < self.capacity */
         unsafe { self.push_unchecked(item); }
+    }
+}
+
+impl<'a, T: Clone, const N: usize> Extend<&'a T> for TinyVec<T, N> {
+    fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
+        self.extend(iter.into_iter().map(Clone::clone));
     }
 }
 
@@ -2265,7 +2278,6 @@ impl<T: Clone, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
             }
         }
     }
-
 }
 
 #[cfg(feature = "use-nightly-features")]
@@ -2415,6 +2427,20 @@ impl_from_call! {
     Box<[T]> => from_boxed_slice,
 }
 
+#[cfg(feature = "alloc")]
+impl<T, const N: usize> From<VecDeque<T>> for TinyVec<T, N> {
+    fn from(value: VecDeque<T>) -> Self {
+        Self::from_vec(Vec::from(value))
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T, const N: usize> From<TinyVec<T, N>> for VecDeque<T> {
+    fn from(value: TinyVec<T, N>) -> Self {
+        VecDeque::from(value.into_vec())
+    }
+}
+
 impl_from_call! {
     [T; N] => from_array_eq_size,
 
@@ -2427,16 +2453,17 @@ impl_from_call! {
 
 impl<T, const N: usize> FromIterator<T> for TinyVec<T, N> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let iter = iter.into_iter();
-        let cap = match iter.size_hint() {
-            (_, Some(max)) => max,
-            (n, None) => n,
-        };
-        let mut vec = Self::with_capacity(cap);
-        for elem in iter {
-            unsafe { vec.push_unchecked(elem) };
-        }
-        vec
+        let mut s = Self::new();
+        s.extend(iter);
+        s
+    }
+}
+
+impl<'a, T: Clone, const N: usize> FromIterator<&'a T> for TinyVec<T, N> {
+    fn from_iter<I: IntoIterator<Item = &'a T>>(iter: I) -> Self {
+        let mut s = Self::new();
+        s.extend(iter);
+        s
     }
 }
 
@@ -2479,6 +2506,61 @@ impl<T, const N: usize> AsMut<TinyVec<T, N>> for TinyVec<T, N> {
 impl<T: Clone, const N: usize> Clone for TinyVec<T, N> {
     fn clone(&self) -> Self {
         Self::from_slice(self.as_slice())
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.clear();
+        self.as_mut_slice().clone_from_slice(source.as_slice());
+    }
+}
+
+#[cfg(feature = "std")]
+extern crate std;
+
+#[cfg(feature = "std")]
+impl<const N: usize> std::io::Write for TinyVec<u8, N> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.copy_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.copy_from_slice(buf);
+        Ok(())
+    }
+
+    fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        use std::io::{Error, ErrorKind};
+        use std::string::ToString;
+
+        let len = bufs.iter().map(|b| b.len()).sum();
+        self.try_reserve(len).map_err(|err| {
+            Error::new(ErrorKind::OutOfMemory, err.to_string())
+        })?;
+        for buf in bufs {
+            self.copy_from_slice(buf);
+        }
+        Ok(len)
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    fn is_write_vectored(&self) -> bool { true }
+
+    #[cfg(feature = "use-nightly-features")]
+    fn write_all_vectored(&mut self, bufs: &mut [std::io::IoSlice<'_>]) -> std::io::Result<()> {
+       self.write_vectored(bufs)?;
+       Ok(())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<const N: usize> fmt::Write for TinyVec<u8, N> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.copy_from_slice(s.as_bytes());
+        Ok(())
     }
 }
 

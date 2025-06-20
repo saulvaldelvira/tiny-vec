@@ -35,6 +35,10 @@ alloc: (default: on)
     If alloc is disabled, the vector/string will panic when it attempts to resize
     beyond it's stack-allocated space.
 
+std: (default: on)
+    Links with the std crate. This provides implementation of std::io::Write
+    for TinyVec
+
 serde: (default: off)
     Implements serde::Serialize and serde::Deserialize for TinyVec and TinyString
 

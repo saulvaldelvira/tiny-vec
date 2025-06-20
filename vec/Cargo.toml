@@ -10,7 +10,8 @@ readme.workspace = true
 description = "Small vector optimization"
 
 [features]
-default = ["alloc"]
+default = ["std"]
+std = ["alloc"]
 alloc = []
 use-nightly-features = []
 serde = ["dep:serde"]
