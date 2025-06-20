@@ -478,16 +478,6 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Creates a new [TinyVec] from the given [Vec]
     ///
-    /// The returned TinyVec will have no extra capacity.
-    /// This means that it won't reuse the Vec's buffer,
-    /// and won't allocate more that vec.len() elements.
-    ///
-    /// If the vector has less than N elements, they'll
-    /// be stored in the stack.
-    ///
-    /// If you want to reuse the Vec's buffer, use the
-    /// [from_vec_reuse_buffer](Self::from_vec_reuse_buffer) function
-    ///
     /// # Example
     /// ```
     /// use tiny_vec::TinyVec;
@@ -496,44 +486,10 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// let tv = TinyVec::<i32, 10>::from_vec(vec);
     ///
-    /// /* vec fits on the stack, so it won't heap-allocate the TinyVec */
-    /// assert!(tv.lives_on_stack());
+    /// assert_eq!(tv, &[1, 2, 3, 4, 5]);
     /// ```
     #[cfg(feature = "alloc")]
-    pub fn from_vec(mut vec: Vec<T>) -> Self {
-        let mut tv = Self::with_capacity(vec.len());
-        let dst = tv.as_mut_ptr();
-        let src = vec.as_ptr();
-        unsafe {
-            ptr::copy(src, dst, vec.len());
-            vec.set_len(0);
-        }
-        tv
-    }
-
-    /// Like [from_vec](Self::from_vec), but it reuses the
-    /// [Vec]'s buffer.
-    ///
-    /// The returned TinyVec will have no extra capacity.
-    /// This means that it won't reuse the Vec's buffer,
-    /// and won't allocate more that vec.len() elements.
-    ///
-    /// For a version that creates a TinyVec with the mininum
-    /// capacity for this vec, check [from_vec](Self::from_vec)
-    ///
-    /// # Example
-    /// ```
-    /// use tiny_vec::TinyVec;
-    ///
-    /// let vec = vec![1, 2, 3, 4, 5];
-    ///
-    /// let tv = TinyVec::<i32, 10>::from_vec_reuse_buffer(vec);
-    ///
-    /// /* This version of from_vec, will use the same buffer vec used */
-    /// assert!(!tv.lives_on_stack());
-    /// ```
-    #[cfg(feature = "alloc")]
-    pub fn from_vec_reuse_buffer(vec: Vec<T>) -> Self {
+    pub fn from_vec(vec: Vec<T>) -> Self {
         let mut vec = ManuallyDrop::new(vec);
 
         let ptr = vec.as_mut_ptr();
