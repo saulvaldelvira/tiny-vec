@@ -45,7 +45,7 @@ capacity.
 - [resize_with](TinyVec::resize_with)
 - [resize_zeroed](TinyVec::resize_zeroed)
 - [extend_from_slice](TinyVec::extend_from_slice)
-- [extend_from_slice_copied](TinyVec::extend_from_slice_copied)
+- [copy_from_slice](TinyVec::copy_from_slice)
 - [extend_from_within](TinyVec::extend_from_within)
 - [extend_from_within_copied](TinyVec::extend_from_within_copied)
 - [append](TinyVec::append)
@@ -610,7 +610,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         T: Copy
     {
         let mut v = Self::with_capacity(slice.len());
-        v.extend_from_slice_copied(slice);
+        v.copy_from_slice(slice);
         v
     }
 
@@ -1668,7 +1668,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// assert_eq!(vec.as_slice(), &["abc", "def", "__"]);
     /// ```
-    /// [extend_from_slice_copied]: Self::extend_from_slice_copied
+    /// [copy_from_slice]: Self::copy_from_slice
     #[inline]
     pub fn extend_from_slice(&mut self, s: &[T])
     where
@@ -1690,14 +1690,14 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// use tiny_vec::TinyVec;
     ///
     /// let mut vec = TinyVec::<i32, 5>::new();
-    /// vec.extend_from_slice_copied(&[1, 2, 3, 4]);
+    /// vec.copy_from_slice(&[1, 2, 3, 4]);
     ///
     /// assert_eq!(vec.as_slice(), &[1, 2, 3, 4]);
     /// ```
     /// [clone]: Clone::clone
     /// [extend_from_slice]: Self::extend_from_slice
     #[inline]
-    pub fn extend_from_slice_copied(&mut self, s: &[T])
+    pub fn copy_from_slice(&mut self, s: &[T])
     where
         T: Copy
     {
@@ -2273,7 +2273,7 @@ impl<T: Copy, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
 
     #[inline]
     fn extend_from_slice_impl(&mut self, s: &[T]) {
-        self.extend_from_slice_copied(s);
+        self.copy_from_slice(s);
     }
 
     #[inline]
@@ -2459,6 +2459,20 @@ impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
     #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
+    }
+}
+
+impl<T, const N: usize> AsRef<TinyVec<T, N>> for TinyVec<T, N> {
+    #[inline]
+    fn as_ref(&self) -> &TinyVec<T, N> {
+        self
+    }
+}
+
+impl<T, const N: usize> AsMut<TinyVec<T, N>> for TinyVec<T, N> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut TinyVec<T, N> {
+        self
     }
 }
 

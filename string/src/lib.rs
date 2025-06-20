@@ -88,6 +88,7 @@ exceeds its capacity.
 #![cfg_attr(feature = "use-nightly-features", feature(extend_one))]
 
 use core::fmt::{self, Display};
+use core::hash::Hash;
 use core::ops::{Bound, Deref, DerefMut, Range, RangeBounds};
 use core::str::{self, FromStr, Utf8Error};
 
@@ -327,7 +328,7 @@ impl<const N: usize> TinyString<N> {
         } else {
             let mut buf = [0_u8; 4];
             c.encode_utf8(&mut buf);
-            self.buf.extend_from_slice_copied(&buf[..len]);
+            self.buf.copy_from_slice(&buf[..len]);
         }
     }
 
@@ -346,7 +347,7 @@ impl<const N: usize> TinyString<N> {
         } else {
             let mut buf = [0_u8; 4];
             c.encode_utf8(&mut buf);
-            self.buf.extend_from_slice_copied(&buf[..len]);
+            self.buf.copy_from_slice(&buf[..len]);
         }
         Ok(())
     }
@@ -377,7 +378,7 @@ impl<const N: usize> TinyString<N> {
     /// Pushes a str slice into this string
     #[inline]
     pub fn push_str(&mut self, s: &str) {
-        self.buf.extend_from_slice_copied(s.as_bytes());
+        self.buf.copy_from_slice(s.as_bytes());
     }
 
     /// Tries to push a str slice. If this `TinyString` doesn't have enough
@@ -389,7 +390,7 @@ impl<const N: usize> TinyString<N> {
         if self.buf.len() + s.len() > self.buf.capacity() {
             Err(s)
         } else {
-            self.buf.extend_from_slice_copied(s.as_bytes());
+            self.buf.copy_from_slice(s.as_bytes());
             Ok(())
         }
     }
@@ -790,6 +791,42 @@ impl<const N: usize> Extend<char> for TinyString<N> {
     }
 }
 
+impl<'a, const N: usize> Extend<&'a str> for TinyString<N> {
+    fn extend<T: IntoIterator<Item = &'a str>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|slice| self.push_str(slice));
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    #[inline]
+    fn extend_one(&mut self, item: &'a str) {
+        self.push_str(item);
+    }
+}
+
+impl<const N: usize> Extend<Box<str>> for TinyString<N> {
+    fn extend<T: IntoIterator<Item = Box<str>>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|slice| self.push_str(&slice));
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    #[inline]
+    fn extend_one(&mut self, item: Box<str>) {
+        self.push_str(&item);
+    }
+}
+
+impl<'a, const N: usize> Extend<Cow<'a, N>> for TinyString<N> {
+    fn extend<T: IntoIterator<Item = Cow<'a, N>>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|slice| self.push_str(&slice));
+    }
+
+    #[cfg(feature = "use-nightly-features")]
+    #[inline]
+    fn extend_one(&mut self, item: Cow<'a, N>) {
+        self.push_str(&item);
+    }
+}
+
 impl<const N: usize, S> PartialEq<S> for TinyString<N>
 where
     S: AsRef<str>,
@@ -807,6 +844,20 @@ impl<const N: usize> PartialEq<TinyString<N>> for &str {
 
 impl<const N: usize> Eq for TinyString<N> { }
 
+impl<const N: usize> PartialOrd<TinyString<N>> for TinyString<N> {
+    #[inline]
+    fn partial_cmp(&self, other: &TinyString<N>) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<const N: usize> Ord for TinyString<N> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.buf.cmp(&other.buf)
+    }
+}
+
 impl<const N: usize> AsRef<[u8]> for TinyString<N> {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
@@ -822,6 +873,26 @@ impl<const N: usize> AsRef<str> for TinyString<N> {
 impl<const N: usize> AsMut<str> for TinyString<N> {
     fn as_mut(&mut self) -> &mut str {
         self.as_mut_str()
+    }
+}
+
+impl<const N: usize> AsRef<TinyString<N>> for TinyString<N> {
+    #[inline]
+    fn as_ref(&self) -> &TinyString<N> {
+        self
+    }
+}
+
+impl<const N: usize> AsMut<TinyString<N>> for TinyString<N> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut TinyString<N> {
+        self
+    }
+}
+
+impl<const N: usize> Hash for TinyString<N> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.buf.hash(state);
     }
 }
 
