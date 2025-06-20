@@ -356,11 +356,11 @@ impl<T, const N: usize> TinyVec<T, N> {
 
         let mut rv = unsafe { self.inner.raw };
 
-        let stack = [const { MaybeUninit::uninit() }; N];
+        let mut stack = [const { MaybeUninit::uninit() }; N];
 
         unsafe {
             let src = rv.ptr.as_ptr();
-            let dst = stack.as_ptr() as *mut T;
+            let dst = stack.as_mut_ptr() as *mut T;
             ptr::copy_nonoverlapping(src,dst,self.len());
             rv.destroy();
         }
@@ -381,6 +381,19 @@ impl<T, const N: usize> TinyVec<T, N> {
             let spare_slice = slice::from_raw_parts_mut(spare_ptr, spare_len);
 
             (slice, spare_slice, &mut self.len)
+        }
+    }
+
+    fn _shrink(&mut self, cap: usize) {
+        assert!(!self.lives_on_stack());
+        assert!(cap >= self.len.get());
+
+        /* SAFETY: It's safe to assume that we are on the heap,
+         * because of the assertion above */
+        if cap <= N {
+            unsafe { self.switch_to_stack(); }
+        } else {
+            unsafe { self.inner.raw.shrink_to_fit(cap); };
         }
     }
 }
@@ -1459,6 +1472,31 @@ impl<T, const N: usize> TinyVec<T, N> {
         mem::forget(guard);
     }
 
+    /// Shrinks the capacity of the vector with a lower bound.
+    ///
+    /// The capacity will remain at least as large as both the length
+    /// and the supplied value.
+    ///
+    /// If the current capacity is less than the lower limit, this is a no-op.
+    ///
+    /// # Examples
+    /// ```
+    /// use tiny_vec::TinyVec;
+    /// let mut vec = TinyVec::<i32, 4>::with_capacity(10);
+    /// vec.extend([1, 2, 3]);
+    /// assert!(vec.capacity() >= 10);
+    /// vec.shrink_to(4);
+    /// assert!(vec.capacity() >= 4);
+    /// vec.shrink_to(0);
+    /// assert!(vec.capacity() >= 3);
+    /// ```
+    pub fn shrink_to(&mut self, min_capacity: usize) {
+        if !self.lives_on_stack() && self.capacity() > min_capacity {
+            let new_cap = usize::max(self.len.get(), min_capacity);
+            self._shrink(new_cap);
+        }
+    }
+
     /// Shrinks the capacity of the vector to fit exactly it's length
     ///
     /// If the vector lives on the heap, but it's length fits inside the
@@ -1470,14 +1508,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     #[cfg(feature = "alloc")]
     pub fn shrink_to_fit(&mut self) {
         if self.len.is_stack() { return }
-
-        /* SAFETY: It's safe to assume that we are on the heap,
-         * because of the check above */
-        if self.len.get() <= N {
-            unsafe { self.switch_to_stack(); }
-        } else {
-            unsafe { self.inner.raw.shrink_to_fit(self.len.get()); };
-        }
+        self._shrink(self.len.get());
     }
 
     /// Moves this `TinyVec` to the heap

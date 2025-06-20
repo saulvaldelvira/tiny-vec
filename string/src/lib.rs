@@ -393,8 +393,46 @@ impl<const N: usize> TinyString<N> {
             Ok(())
         }
     }
+    /// Shrinks the capacity of this `String` with a lower bound.
+    ///
+    /// The capacity will remain at least as large as both the length
+    /// and the supplied value.
+    ///
+    /// If the current capacity is less than the lower limit, this is a no-op.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tiny_str::TinyString;
+    ///
+    /// let mut s = TinyString::<5>::from("foobar");
+    ///
+    /// s.reserve(100);
+    /// assert!(s.capacity() >= 100);
+    ///
+    /// s.shrink_to(10);
+    /// assert!(s.capacity() >= 10, "{}", s.capacity());
+    /// s.shrink_to(0);
+    /// assert!(s.capacity() >= 6);
+    /// ```
+    #[inline]
+    pub fn shrink_to(&mut self, min_capacity: usize) {
+        self.buf.shrink_to(min_capacity)
+    }
 
-    /// Shrinks the capacity of this string to fit exactly it's length
+    /// Shrinks the capacity of `self` to match its length.
+    ///
+    /// # Examples
+    /// ```
+    /// use tiny_str::TinyString;
+    /// let mut s = TinyString::<5>::from("foobar");
+    ///
+    /// s.reserve(100);
+    /// assert!(s.capacity() >= 100);
+    ///
+    /// s.shrink_to_fit();
+    /// assert_eq!(6, s.capacity());
+    /// ```
     #[inline]
     #[cfg(feature = "alloc")]
     pub fn shrink_to_fit(&mut self) {
