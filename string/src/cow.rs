@@ -1,7 +1,7 @@
 //! Cow implementation for TinyVec
 
 use core::fmt::Debug;
-use core::ops::Deref;
+use core::ops::{Add, AddAssign, Deref};
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -166,13 +166,22 @@ impl<'borrow, const N: usize> Debug for Cow<'borrow, N> {
     }
 }
 
-impl<'borrow, const N: usize> PartialEq for Cow<'borrow, N> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Borrowed(l0), Self::Borrowed(r0)) => l0 == r0,
-            (Self::Owned(l0), Self::Owned(r0)) => l0 == r0,
-            _ => false,
-        }
+impl<'borrow, const N: usize> Eq for Cow<'borrow, N> {}
+impl<'borrow, const N: usize> Ord for Cow<'borrow, N> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_bytes().cmp(other.as_bytes())
+    }
+}
+
+impl<'borrow, const N: usize> PartialEq<Cow<'borrow, N>> for Cow<'borrow, N> {
+    fn eq(&self, other: &Cow<'borrow, N>) -> bool {
+        other.as_bytes() == self.as_bytes()
+    }
+}
+
+impl<'borrow, const N: usize> PartialOrd<Cow<'borrow, N>> for Cow<'borrow, N> {
+    fn partial_cmp(&self, other: &Cow<'borrow, N>) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -184,7 +193,67 @@ impl<'borrow, const N: usize> PartialEq<str> for Cow<'borrow, N> {
 
 impl<'borrow, const N: usize> PartialEq<Cow<'borrow, N>> for str {
     fn eq(&self, other: &Cow<'borrow, N>) -> bool {
-        self == other.as_str()
+        other.as_str() == self
+    }
+}
+
+impl<'borrow, const N: usize> PartialEq<&str> for Cow<'borrow, N> {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl<'borrow, const N: usize> PartialEq<Cow<'borrow, N>> for &str {
+    fn eq(&self, other: &Cow<'borrow, N>) -> bool {
+        other.as_str() == *self
+    }
+}
+
+impl<'borrow, const N: usize> PartialEq<[u8]> for Cow<'borrow, N> {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.as_bytes() == other
+    }
+}
+
+impl<'borrow, const N: usize> PartialEq<Cow<'borrow, N>> for [u8]{
+    fn eq(&self, other: &Cow<'borrow, N>) -> bool {
+        other.as_bytes() == self
+    }
+}
+
+impl<'borrow, const N: usize> PartialOrd<[u8]> for Cow<'borrow, N> {
+    fn partial_cmp(&self, other: &[u8]) -> Option<core::cmp::Ordering> {
+        self.as_bytes().partial_cmp(other)
+    }
+}
+
+impl<'borrow, const N: usize> PartialOrd<Cow<'borrow, N>> for [u8]{
+    fn partial_cmp(&self, other: &Cow<'borrow, N>) -> Option<core::cmp::Ordering> {
+        self.partial_cmp(other.as_bytes())
+    }
+}
+
+impl<'borrow, const N: usize> PartialOrd<str> for Cow<'borrow, N> {
+    fn partial_cmp(&self, other: &str) -> Option<core::cmp::Ordering> {
+        self.as_str().partial_cmp(other)
+    }
+}
+
+impl<'borrow, const N: usize> PartialOrd<Cow<'borrow, N>> for str {
+    fn partial_cmp(&self, other: &Cow<'borrow, N>) -> Option<core::cmp::Ordering> {
+        self.partial_cmp(other.as_str())
+    }
+}
+
+impl<'borrow, const N: usize> PartialOrd<&str> for Cow<'borrow, N> {
+    fn partial_cmp(&self, other: &&str) -> Option<core::cmp::Ordering> {
+        self.as_str().partial_cmp(*other)
+    }
+}
+
+impl<'borrow, const N: usize> PartialOrd<Cow<'borrow, N>> for &str {
+    fn partial_cmp(&self, other: &Cow<'borrow, N>) -> Option<core::cmp::Ordering> {
+        self.partial_cmp(&other.as_str())
     }
 }
 
@@ -200,5 +269,66 @@ impl<'borrow, const N: usize> Clone for Cow<'borrow, N> {
 impl<'borrow, const N: usize> Default for Cow<'borrow, N> {
     fn default() -> Self {
         Self::Borrowed("")
+    }
+}
+
+impl<'borrow, const N: usize> Add for Cow<'borrow, N> {
+    type Output = Cow<'borrow, N>;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
+impl<'borrow, const N: usize> Add<&'borrow str> for Cow<'borrow, N> {
+    type Output = Cow<'borrow, N>;
+
+    fn add(mut self, rhs: &'borrow str) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
+impl<'borrow, const N: usize> AddAssign<&'borrow str> for Cow<'borrow, N> {
+    fn add_assign(&mut self, rhs: &'borrow str) {
+        if self.is_empty() {
+            *self = Cow::Borrowed(rhs)
+        } else if !rhs.is_empty() {
+            if let Cow::Borrowed(b) = self {
+                let mut s = TinyString::with_capacity(b.len() + rhs.len());
+                s.push_str(b);
+                *self = Cow::Owned(s);
+            }
+            self.to_mut().push_str(rhs);
+        }
+    }
+}
+
+impl<'borrow, const N: usize> AddAssign<Cow<'borrow, N>> for Cow<'borrow, N> {
+    fn add_assign(&mut self, rhs: Cow<'borrow, N>) {
+        if self.is_empty() {
+            *self = rhs;
+        } else if !rhs.is_empty() {
+            if let Cow::Borrowed(b) = self {
+                let mut s = TinyString::with_capacity(b.len() + rhs.len());
+                s.push_str(b);
+                *self = Cow::Owned(s);
+            }
+            self.to_mut().push_str(&rhs);
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn partial_eq() {
+        let s = TinyString::<10>::from("ABCDEF");
+        let cow = Cow::from(s);
+
+        assert_eq!("ABCDEF", cow);
     }
 }

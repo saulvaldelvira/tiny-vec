@@ -89,7 +89,7 @@ exceeds its capacity.
 
 use core::fmt::{self, Display};
 use core::hash::Hash;
-use core::ops::{Bound, Deref, DerefMut, Range, RangeBounds};
+use core::ops::{AddAssign, Bound, Deref, DerefMut, Range, RangeBounds};
 use core::str::{self, FromStr, Utf8Error};
 
 #[cfg(feature = "alloc")]
@@ -1021,6 +1021,13 @@ impl<const N: usize> core::fmt::Write for TinyString<N> {
     fn write_char(&mut self, c: char) -> fmt::Result {
         self.push(c);
         Ok(())
+    }
+}
+
+impl<'a, const N: usize> AddAssign<&'a str> for TinyString<N> {
+    #[inline]
+    fn add_assign(&mut self, rhs: &'a str) {
+        self.push_str(rhs);
     }
 }
 
