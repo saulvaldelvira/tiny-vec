@@ -1326,6 +1326,139 @@ impl<T, const N: usize> TinyVec<T, N> {
         }
     }
 
+    /// Removes consecutive repeated elements in `self` according to the
+    /// [`PartialEq`] trait implementation.
+    ///
+    /// If the vector is sorted, this removes all duplicates.
+    ///
+    /// # Examples
+    /// ```
+    /// use tiny_vec::TinyVec;
+    /// let mut vec = TinyVec::from([1, 2, 2, 3, 2]);
+    /// vec.dedup();
+    /// assert_eq!(vec, [1, 2, 3, 2]);
+    /// ```
+    #[inline]
+    pub fn dedup(&mut self)
+    where
+        T: PartialEq
+    {
+        self.dedup_by(|a, b| a == b);
+    }
+
+    /// Removes all but the first of consecutive elements in the
+    /// vector that resolve to the same key.
+    ///
+    /// If the vector is sorted, this removes all duplicates.
+    ///
+    /// # Examples
+    /// ```
+    /// use tiny_vec::TinyVec;
+    /// let mut vec = TinyVec::from([10, 20, 21, 30, 20]);
+    ///
+    /// vec.dedup_by_key(|i| *i / 10);
+    /// assert_eq!(vec, [10, 20, 30, 20]);
+    /// ```
+    #[inline]
+    pub fn dedup_by_key<F, K>(&mut self, mut key: F)
+    where
+        F: FnMut(&mut T) -> K,
+        K: PartialEq
+    {
+        self.dedup_by(|a, b| key(a) == key(b));
+    }
+
+    /// Removes all but the first of consecutive elements in `self` satisfying
+    /// a given equality relation.
+    ///
+    /// The `are_equal` function is passed references to two elements from the vector and
+    /// must determine if the elements compare equal. The elements are passed in opposite order
+    /// from their order in the slice, so if `same_bucket(a, b)` returns `true`, `a` is removed.
+    ///
+    /// If the vector is sorted, this removes all duplicates.
+    ///
+    /// # Examples
+    /// ```
+    /// use tiny_vec::TinyVec;
+    /// let mut vec = TinyVec::from(["foo", "bar", "Bar", "baz", "bar"]);
+    ///
+    /// vec.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    ///
+    /// assert_eq!(vec, ["foo", "bar", "baz", "bar"]);
+    /// ```
+    pub fn dedup_by<F>(&mut self, mut are_equal: F)
+    where
+        F: FnMut(&mut T, &mut T) -> bool
+    {
+        let (ptr, _, len) = unsafe { self.split_at_spare_mut_with_len() };
+        let ptr = ptr.as_mut_ptr();
+
+        if len.get() <= 1 {
+            return
+        }
+
+        let mut first_dup = 1;
+        while first_dup != len.get() {
+           let is_dup = unsafe {
+                let a = ptr.add(first_dup - 1);
+                let b = ptr.add(first_dup);
+                are_equal(&mut *b, &mut *a)
+           };
+           if is_dup {
+               break
+           }
+           first_dup += 1;
+        }
+        if first_dup == len.get() {
+            return;
+        }
+
+        struct DropGuard<'a, T> {
+            len: &'a mut Length,
+            ptr: *mut T,
+            right: usize,
+            left: usize,
+        }
+
+        impl<T> Drop for DropGuard<'_, T> {
+            fn drop(&mut self) {
+                unsafe {
+                    let len = self.len.get();
+
+                    let shift = len - self.right;
+                    let src = self.ptr.add(self.right);
+                    let dst = self.ptr.add(self.left);
+                    ptr::copy(src, dst, shift);
+
+                    let deleted = self.right - self.left;
+                    self.len.sub(deleted);
+                }
+            }
+        }
+
+        let mut guard = DropGuard { right: first_dup + 1, left: first_dup, ptr, len };
+        unsafe { ptr::drop_in_place(ptr.add(first_dup)); }
+        while guard.right < guard.len.get() {
+            unsafe {
+                let a = ptr.add(guard.left - 1);
+                let b = ptr.add(guard.right);
+
+                if are_equal(&mut *b, &mut *a) {
+                    guard.right += 1;
+                    ptr::drop_in_place(b);
+                } else {
+                    let dst = ptr.add(guard.left);
+                    ptr::copy_nonoverlapping(b, dst, 1);
+                    guard.left += 1;
+                    guard.right += 1;
+                }
+            }
+        }
+
+        guard.len.set(guard.left);
+        mem::forget(guard);
+    }
+
     /// Shrinks the capacity of the vector to fit exactly it's length
     ///
     /// If the vector lives on the heap, but it's length fits inside the
