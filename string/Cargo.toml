@@ -19,3 +19,9 @@ default-features = false
 default = ["alloc"]
 alloc = ["tiny-vec/alloc"]
 use-nightly-features  = ["tiny-vec/use-nightly-features"]
+serde = ["dep:serde"]
+
+[dependencies.serde]
+version = ">=1.0.219"
+optional = true
+default-features = false

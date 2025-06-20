@@ -117,7 +117,11 @@ use alloc::{
 };
 use drain::Drain;
 use extract_if::ExtractIf;
+#[cfg(feature = "serde")]
+use serde::Deserialize;
 
+use core::borrow::{Borrow, BorrowMut};
+use core::hash::Hash;
 use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ops::{Bound, Deref, DerefMut, Range, RangeBounds};
@@ -2320,12 +2324,47 @@ impl<T: PartialEq, const N: usize, S> PartialEq<S> for TinyVec<T, N>
 where
     S: AsRef<[T]>,
 {
+    #[inline]
     fn eq(&self, other: &S) -> bool {
         self.as_slice() == other.as_ref()
     }
 }
 
+impl<T: PartialOrd, const N: usize> PartialOrd for TinyVec<T, N> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.as_slice().partial_cmp(other.as_slice())
+    }
+}
+
+impl<T: Ord, const N: usize> Ord for TinyVec<T, N> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
 impl<T: PartialEq, const N: usize> Eq for TinyVec<T, N> {}
+
+impl<T: Hash, const N: usize> Hash for TinyVec<T, N> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state);
+    }
+}
+
+impl<T, const N: usize> Borrow<[T]> for TinyVec<T, N> {
+    #[inline]
+    fn borrow(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+impl<T, const N: usize> BorrowMut<[T]> for TinyVec<T, N> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut [T] {
+        self.as_mut_slice()
+    }
+}
 
 impl<T, const N: usize> Deref for TinyVec<T, N> {
     type Target = [T];
@@ -2426,6 +2465,59 @@ impl<T, const N: usize> AsMut<[T]> for TinyVec<T, N> {
 impl<T: Clone, const N: usize> Clone for TinyVec<T, N> {
     fn clone(&self) -> Self {
         Self::from_slice(self.as_slice())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<T: serde::Serialize, const N: usize> serde::Serialize for TinyVec<T, N> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        use serde::ser::SerializeSeq;
+
+        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+        for elem in self.as_slice() {
+            seq.serialize_element(elem)?;
+        }
+        seq.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T: Deserialize<'de>, const N: usize> serde::Deserialize<'de> for TinyVec<T, N> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>
+    {
+        deserializer.deserialize_seq(TinyVecDeserializer(PhantomData))
+    }
+}
+
+#[cfg(feature = "serde")]
+struct TinyVecDeserializer<T, const N: usize>(PhantomData<T>);
+
+#[cfg(feature = "serde")]
+impl<'de, T: Deserialize<'de>, const N: usize> serde::de::Visitor<'de> for TinyVecDeserializer<T, N> {
+    type Value = TinyVec<T, N>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "a sequence")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        use serde::de::Error;
+        let len = seq.size_hint().unwrap_or(0);
+        let mut values = TinyVec::try_with_capacity(len).map_err(A::Error::custom)?;
+
+        while let Some(value) = seq.next_element()? {
+            values.push(value);
+        }
+
+        Ok(values)
     }
 }
 

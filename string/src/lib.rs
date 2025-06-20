@@ -845,5 +845,28 @@ impl<const N: usize> FromStr for TinyString<N> {
     }
 }
 
+#[cfg(feature = "serde")]
+impl<const N: usize> serde::Serialize for TinyString<N> {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        self.buf.serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, const N: usize> serde::Deserialize<'de> for TinyString<N> {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>
+    {
+        let buf = TinyVec::<u8, N>::deserialize(deserializer)?;
+        Ok(Self { buf })
+    }
+}
+
 #[cfg(test)]
 mod test;

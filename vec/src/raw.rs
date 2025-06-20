@@ -3,6 +3,7 @@ extern crate alloc as _alloc;
 #[cfg(feature = "alloc")]
 use _alloc::alloc::{self,Layout};
 
+use core::fmt::Display;
 use core::mem;
 use core::ptr::NonNull;
 
@@ -38,6 +39,21 @@ pub enum ResizeError {
     CapacityOverflow,
     AllocationExceedsMaximun,
 }
+
+impl Display for ResizeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            #[cfg(feature = "alloc")]
+            ResizeError::AllocationError(layout) => write!(f, "Allocation error for layout ({layout:?})"),
+            #[cfg(not(feature = "alloc"))]
+            AllocNotSupported => write!(f, "Alloc is not supported"),
+            ResizeError::CapacityOverflow => write!(f, "Capacity overflow"),
+            ResizeError::AllocationExceedsMaximun => write!(f, "Allocation size exceeds maximun"),
+        }
+    }
+}
+
+impl core::error::Error for ResizeError {}
 
 impl ResizeError {
     pub (crate) fn handle(&self) -> ! {

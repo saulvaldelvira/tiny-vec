@@ -18,22 +18,25 @@ Or browse it online at
 == Features ==
 
 use-nightly-features: (default: off, requires nightly)
-Enables the following functionality
+    Enables the following functionality
 
-- Specialization for trait impls
-  For example, From<&[T]> where T is Copy can be optimized as a ptr::copy.
-  We can specialize that case, while still allowing From<&[T]> for the
-  types that only implement Clone.
+    - Specialization for trait impls
+      For example, From<&[T]> where T is Copy can be optimized as a ptr::copy.
+      We can specialize that case, while still allowing From<&[T]> for the
+      types that only implement Clone.
 
-- Adds the option to not specify a capacity for the stack buffer, which
-  will default to the maximun capacity that fits in the RawVec's space.
-  This default size causes no memory waste when switching to the heap.
+    - Adds the option to not specify a capacity for the stack buffer, which
+      will default to the maximun capacity that fits in the RawVec's space.
+      This default size causes no memory waste when switching to the heap.
 
 alloc: (default: on)
-Links with the alloc crate.
-It is enabled by default, but it can be disabled for enviroments without alloc.
-If alloc is disabled, the vector/string will panic when it attempts to resize
-beyond it's stack-allocated space.
+    Links with the alloc crate.
+    It is enabled by default, but it can be disabled for enviroments without alloc.
+    If alloc is disabled, the vector/string will panic when it attempts to resize
+    beyond it's stack-allocated space.
+
+serde: (default: off)
+    Implements serde::Serialize and serde::Deserialize for TinyVec and TinyString
 
 == Contributing ==
 You can send patches to <saul@saulv.es>, or a pull request on the github

@@ -13,3 +13,9 @@ description = "Small vector optimization"
 default = ["alloc"]
 alloc = []
 use-nightly-features = []
+serde = ["dep:serde"]
+
+[dependencies.serde]
+version = ">=1.0.219"
+optional = true
+default-features = false
