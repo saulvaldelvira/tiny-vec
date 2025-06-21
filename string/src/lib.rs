@@ -147,11 +147,13 @@ impl<const N: usize> TinyString<N> {
 
     /// Creates a new [TinyString]
     #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self { buf: TinyVec::new() }
     }
 
     /// Creates a new [TinyString] with the given capacity
+    #[must_use]
     pub fn with_capacity(cap: usize) -> Self {
         Self { buf: TinyVec::with_capacity(cap) }
     }
@@ -179,6 +181,7 @@ impl<const N: usize> TinyString<N> {
     /// # Safety
     /// The caller must ensure that the given contains valid utf8
     #[inline(always)]
+    #[must_use]
     pub const unsafe fn from_utf8_unchecked(utf8: TinyVec<u8, N>) -> Self {
         Self { buf: utf8 }
     }
@@ -194,6 +197,7 @@ impl<const N: usize> TinyString<N> {
     /// let s = TinyString::<10>::repeat("abc", 5);
     /// assert_eq!(s.as_str(), "abcabcabcabcabc");
     /// ```
+    #[must_use]
     pub fn repeat(slice: &str, n: usize) -> Self {
         Self {
             buf: TinyVec::repeat(slice.as_bytes(), n)
@@ -496,6 +500,7 @@ impl<const N: usize> TinyString<N> {
     /// assert_eq!(&*b, "abc");
     /// ```
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn into_boxed_str(self) -> Box<str> {
         let b = self.buf.into_boxed_slice();
         unsafe { alloc::str::from_boxed_utf8_unchecked(b) }

@@ -165,6 +165,34 @@ fn zst() {
     assert!(tv.lives_on_stack());
 }
 
+#[test]
+fn extract_if() {
+    let mut numbers = TinyVec::<i32, 10>::from(&[1, 2, 3, 4, 5, 6, 8, 9, 11, 13, 14, 15]);
+
+    let evens = numbers.extract_if(.., |x| *x % 2 == 0).collect::<TinyVec<_, 8>>();
+    let odds = numbers;
+
+    assert_eq!(evens, &[2, 4, 6, 8, 14]);
+    assert_eq!(odds, &[1, 3, 5, 9, 11, 13, 15]);
+
+    let mut items = TinyVec::<i32, 10>::from(&[0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 2, 1, 2]);
+    let ones = items.extract_if(7.., |x| *x == 1).collect::<TinyVec<_, 4>>();
+    assert_eq!(items, &[0, 0, 0, 0, 0, 0, 0, 2, 2, 2]);
+    assert_eq!(ones.len(), 3);
+}
+
+#[test]
+fn extract_if_vs_retain() {
+    let mut vec1 = TinyVec::<i32, 10>::from(&[1, 2, 3, 4, 5, 6, 8, 9, 11, 13, 14, 15]);
+    let mut vec2 = vec1.clone();
+
+    let pred = |x: &i32| *x % 2 == 0;
+    vec1.extract_if(.., |n| pred(n)).for_each(|_| {});
+    vec2.retain(|n| !pred(n));
+
+    assert_eq!(vec1, vec2);
+}
+
 #[cfg(not(feature = "alloc"))]
 mod no_alloc {
 

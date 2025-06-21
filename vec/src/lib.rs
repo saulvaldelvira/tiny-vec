@@ -408,6 +408,7 @@ impl<T, const N: usize> TinyVec<T, N> {
 impl<T, const N: usize> TinyVec<T, N> {
 
     /// Creates a new [TinyVec]
+    #[must_use]
     pub const fn new() -> Self {
         let stack = [ const { MaybeUninit::uninit() }; N ];
         Self {
@@ -417,6 +418,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     }
 
     /// Creates a new [TinyVec] with the specified initial capacity
+    #[must_use]
     pub fn with_capacity(cap: usize) -> Self {
         Self::try_with_capacity(cap).unwrap_or_else(|err| err.handle())
     }
@@ -454,6 +456,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(tv.capacity(), 10);
     /// assert!(tv.lives_on_stack());
     /// ```
+    #[must_use]
     pub fn from_array<const M: usize>(arr: [T; M]) -> Self {
         let arr = ManuallyDrop::new(arr);
         let mut tv = Self::with_capacity(M);
@@ -481,6 +484,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(tv.capacity(), 4);
     /// assert!(tv.lives_on_stack());
     /// ```
+    #[must_use]
     pub const fn from_array_eq_size(arr: [T; N]) -> Self {
         let mut tv = Self::new();
 
@@ -509,6 +513,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(tv, &[1, 2, 3, 4, 5]);
     /// ```
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn from_vec(vec: Vec<T>) -> Self {
         let mut vec = ManuallyDrop::new(vec);
 
@@ -525,6 +530,7 @@ impl<T, const N: usize> TinyVec<T, N> {
 
     /// Creates a TinyVec from a boxed slice of T
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn from_boxed_slice(boxed: Box<[T]>) -> Self {
         let len = boxed.len();
         let ptr = Box::into_raw(boxed);
@@ -554,24 +560,24 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///    on the stack, and v1 has 3*/
     /// assert!(!v3.lives_on_stack());
     /// ```
+    #[must_use]
     pub fn from_tiny_vec<const M: usize>(mut vec: TinyVec<T, M>) -> Self {
         let len = vec.len();
+
+        /* When alloc is disabled, it's impossible that the legth
+         * of a TinyVec exceeds it's stack-capacity */
+        #[cfg(feature = "alloc")]
         if len > N && len > M {
-            #[cfg(feature = "alloc")] {
-                /* If the buffer must be on the heap on both src and dest,
-                * just copy the RawVec from vec to Self */
-                let tv = Self {
-                    len: Length::new_heap(len),
-                    inner: TinyVecInner {
-                        raw: unsafe { vec.inner.raw }
-                    }
-                };
-                mem::forget(vec);
-                return tv
-            }
-            #[cfg(not(feature = "alloc"))]
-            unreachable!("The length of vec won't be higher that it's capacity, \
-                so this branch will NEVER be reached");
+            /* If the buffer must be on the heap on both src and dest,
+            * just copy the RawVec from vec to Self */
+            let tv = Self {
+                len: Length::new_heap(len),
+                inner: TinyVecInner {
+                    raw: unsafe { vec.inner.raw }
+                }
+            };
+            mem::forget(vec);
+            return tv
         }
 
         let mut tv = Self::with_capacity(len);
@@ -608,6 +614,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// That's why it requires T to implement [Copy].
     ///
     /// For a cloning alternative, use [from_slice](Self::from_slice)
+    #[must_use]
     pub fn from_slice_copied(slice: &[T]) -> Self
     where
         T: Copy
@@ -631,6 +638,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     ///
     /// assert_eq!(vec, &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
     /// ```
+    #[must_use]
     pub fn repeat(slice: &[T], n: usize) -> Self
     where
         T: Copy
@@ -1773,6 +1781,9 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// This is the same as calling
     /// `self.extract_if(.., |e| !pred(e)).for_each(|e| drop(e))`
     ///
+    /// If you need the predicate to receive a mutable reference,
+    /// see [retain_mut](Self::retain_mut)
+    ///
     /// # Example
     /// ```
     /// use tiny_vec::TinyVec;
@@ -1781,6 +1792,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// vec.retain(|&n| n % 2 == 0);
     /// assert_eq!(vec, &[2, 4, 6, 8]);
     /// ```
+    #[inline]
     pub fn retain<F>(&mut self, mut pred: F)
     where
         F: FnMut(&T) -> bool
@@ -2054,7 +2066,9 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// after the range will still have to be moved if any element has been extracted.
     ///
     /// If the returned `ExtractIf` is not exhausted, e.g. because it is dropped without iterating
-    /// or the iteration short-circuits, then the remaining elements will be retained.
+    /// or the iteration short-circuits, then the remaining elements will be retained. If you want to
+    /// remove all elements matching `pred`, you need to exhaust the iterator. Alternativelly, you can
+    /// use [retain](Self::retain) with the predicate negated.
     ///
     /// Note that `extract_if` also lets you mutate the elements passed to the filter closure,
     /// regardless of whether you choose to keep or remove them.
@@ -2084,9 +2098,26 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// use tiny_vec::TinyVec;
     /// let mut items = TinyVec::<i32, 10>::from(&[0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 2, 1, 2]);
     /// let ones = items.extract_if(7.., |x| *x == 1).collect::<TinyVec<_, 4>>();
-    /// assert_eq!(items, vec![0, 0, 0, 0, 0, 0, 0, 2, 2, 2]);
+    /// assert_eq!(items, &[0, 0, 0, 0, 0, 0, 0, 2, 2, 2]);
     /// assert_eq!(ones.len(), 3);
     /// ```
+    ///
+    /// ## Comparison between [extract_if](Self::extract_if) and [retain](Self::retain)
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec1 = TinyVec::<i32, 10>::from(&[1, 2, 3, 4, 5, 6, 8, 9, 11, 13, 14, 15]);
+    /// let mut vec2 = vec1.clone();
+    /// let pred = |x: &i32| *x % 2 == 0;
+    ///
+    /// vec1.extract_if(.., |n| pred(n))
+    ///     .for_each(|_| {}); // We need to exhaust the iterator for it to remove all matches
+    /// vec2.retain(|n| !pred(n));
+    ///
+    /// assert_eq!(vec1, vec2);
+    /// ```
+    #[must_use = "extract_if won't do anything if it's dropped immediately. \
+                  Use '.retain' with the predicate negated."]
     pub fn extract_if<R, F>(&mut self, range: R, pred: F) -> ExtractIf<'_, T, N, F>
     where
         R: RangeBounds<usize>,
