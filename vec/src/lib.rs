@@ -2201,7 +2201,7 @@ impl<T, const N: usize> Extend<T> for TinyVec<T, N> {
         self.reserve(lower);
 
         for elem in iter {
-            unsafe { self.push_unchecked(elem); }
+            self.push(elem);
         }
     }
 

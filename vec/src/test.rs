@@ -193,6 +193,13 @@ fn extract_if_vs_retain() {
     assert_eq!(vec1, vec2);
 }
 
+#[test]
+fn extend() {
+    let mut vec = TinyVec::<i32, 10>::new();
+    vec.extend((0..10).map(|n| n * 2));
+    assert_eq!(vec, &[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]);
+}
+
 #[cfg(not(feature = "alloc"))]
 mod no_alloc {
 
