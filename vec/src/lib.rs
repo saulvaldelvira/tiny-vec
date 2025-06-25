@@ -2034,7 +2034,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// v.drain(..);
     /// assert_eq!(v, &[]);
     /// ```
-    pub fn drain<R>(&mut self, range: R) -> Drain<T, N>
+    pub fn drain<R>(&mut self, range: R) -> Drain<'_, T, N>
     where
         R: RangeBounds<usize>
     {

@@ -158,7 +158,7 @@ impl<const N: usize> TinyString<N> {
     /// s.drain(..);
     /// assert_eq!(s.as_str(), "");
     /// ```
-    pub fn drain<R>(&mut self, range: R) -> Drain<N>
+    pub fn drain<R>(&mut self, range: R) -> Drain<'_, N>
     where
         R: RangeBounds<usize>
     {
