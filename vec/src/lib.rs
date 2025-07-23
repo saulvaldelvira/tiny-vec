@@ -799,7 +799,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         Ok(())
     }
 
-    /// Reserves space for n more elements, but unline
+    /// Reserves space for n more elements, but unlike
     /// [reserve](Self::reserve), this function doesn't over-allocate.
     ///
     /// # Panics
