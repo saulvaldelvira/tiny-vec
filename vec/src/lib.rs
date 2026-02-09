@@ -2539,9 +2539,23 @@ impl<T: Clone, const N: usize> Clone for TinyVec<T, N> {
         Self::from_slice(self.as_slice())
     }
 
+    /// ```
+    /// use tiny_vec::{TinyVec, tinyvec};
+    ///
+    /// let tv = tinyvec![1, 2, 3, 4, 5];
+    /// let mut tv2 = TinyVec::<i32, 10>::new();
+    /// tv2.clone_from(&tv);
+    ///
+    /// assert_eq!(tv, tv2);
+    /// ```
     fn clone_from(&mut self, source: &Self) {
         self.clear();
-        self.as_mut_slice().clone_from_slice(source.as_slice());
+        self.reserve(source.len());
+        let (_, buf) = self.split_at_spare_mut();
+        for (src, dst) in source.as_slice().iter().zip(buf.iter_mut()) {
+            dst.write(src.clone());
+        }
+        unsafe { self.set_len(source.len()) };
     }
 }
 
