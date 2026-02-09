@@ -375,7 +375,7 @@ impl<T, const N: usize> TinyVec<T, N> {
         self.len.set_stack();
     }
 
-    const unsafe fn split_at_spare_mut_with_len(&mut self) -> (&mut [T], &mut [MaybeUninit<T>], &mut Length) {
+    const fn split_at_spare_mut_with_len(&mut self) -> (&mut [T], &mut [MaybeUninit<T>], &mut Length) {
         unsafe {
             let len = self.len();
             let ptr = self.as_mut_ptr();
@@ -1418,7 +1418,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     where
         F: FnMut(&mut T, &mut T) -> bool
     {
-        let (ptr, _, len) = unsafe { self.split_at_spare_mut_with_len() };
+        let (ptr, _, len) = self.split_at_spare_mut_with_len();
         let ptr = ptr.as_mut_ptr();
 
         if len.get() <= 1 {
@@ -1878,7 +1878,7 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(&v, &[1, 1, 2, 4, 8, 12, 16]);
     /// ```
     pub const fn split_at_spare_mut(&mut self) -> (&mut [T], &mut [MaybeUninit<T>]) {
-        let (init, uninit, _) = unsafe { self.split_at_spare_mut_with_len() };
+        let (init, uninit, _) = self.split_at_spare_mut_with_len();
         (init, uninit)
     }
 
@@ -2277,7 +2277,7 @@ impl<T: Clone, const N: usize> CopyOptimization<T> for TinyVec<T, N> {
 
             self.reserve(end - start);
 
-            let (slice, spare, len) = unsafe { self.split_at_spare_mut_with_len() };
+            let (slice, spare, len) = self.split_at_spare_mut_with_len();
             let slice = &slice[start..end];
 
             for (src, dst) in slice.iter().zip(spare.iter_mut()) {
@@ -2551,11 +2551,11 @@ impl<T: Clone, const N: usize> Clone for TinyVec<T, N> {
     fn clone_from(&mut self, source: &Self) {
         self.clear();
         self.reserve(source.len());
-        let (_, buf) = self.split_at_spare_mut();
+        let (_, buf, len) = self.split_at_spare_mut_with_len();
         for (src, dst) in source.as_slice().iter().zip(buf.iter_mut()) {
             dst.write(src.clone());
         }
-        unsafe { self.set_len(source.len()) };
+        len.set(source.len());
     }
 }
 
