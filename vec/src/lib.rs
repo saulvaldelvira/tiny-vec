@@ -150,12 +150,12 @@ union TinyVecInner<T, const N: usize> {
 impl<T, const N: usize> TinyVecInner<T, N> {
     #[inline(always)]
     const unsafe fn as_ptr_stack(&self) -> *const T {
-        unsafe { &raw const self.stack as *const T }
+        &raw const self.stack as *const T
     }
 
     #[inline(always)]
     const unsafe fn as_ptr_stack_mut(&mut self) -> *mut T {
-        unsafe { &raw mut self.stack as *mut T }
+        &raw mut self.stack as *mut T
     }
 
     #[inline(always)]
