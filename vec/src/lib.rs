@@ -34,7 +34,7 @@ capacity.
 - [reserve]
 - [reserve_exact]
 - [push]
-- [push_unchecked](TinyVec::push_unchecked)
+- [push_mut]
 - [insert](TinyVec::insert)
 - [insert_unchecked](TinyVec::insert_unchecked)
 - [insert_slice](TinyVec::insert_slice)
@@ -54,11 +54,13 @@ capacity.
 | May Panic | No Panic |
 | --------- | -------- |
 |  [push]   | [push_within_capacity](TinyVec::push_within_capacity) |
+|  [push_mut]   | [push_mut_within_capacity](TinyVec::push_mut_within_capacity) |
 |  [reserve]   | [try_reserve](TinyVec::try_reserve) |
 |  [reserve_exact]   | [try_reserve_exact](TinyVec::try_reserve) |
 | [with_capacity] | [try_with_capacity](TinyVec::try_with_capacity) |
 
 [push]: TinyVec::push
+[push_mut]: TinyVec::push_mut
 [reserve]: TinyVec::reserve
 [reserve_exact]: TinyVec::reserve_exact
 [with_capacity]: TinyVec::with_capacity
@@ -862,6 +864,26 @@ impl<T, const N: usize> TinyVec<T, N> {
         unsafe { self.push_unchecked(elem); }
     }
 
+    /// Same as [push](Self::push), but returns a mutable
+    /// reference to the inserted element.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 10>::new();
+    /// for n in 0..5 {
+    ///     let mut val = vec.push_mut(n);
+    ///     *val *= 2;
+    /// }
+    /// assert_eq!(vec.as_slice(), &[0, 2, 4, 6, 8])
+    /// ```
+    #[must_use = "If the reference is not needed, use push instead"]
+    pub fn push_mut(&mut self, elem: T) -> &mut T {
+        self.reserve(1);
+        unsafe { self.push_mut_unchecked(elem) }
+    }
+
     /// Appends an element to the back of the vector without
     /// checking for space.
     ///
@@ -884,12 +906,37 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// }
     /// assert_eq!(vec.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     /// ```
+    #[inline]
     pub unsafe fn push_unchecked(&mut self, elem: T) {
+       let _ = unsafe { self.push_mut_unchecked(elem) };
+    }
+
+    /// Same as [push_unchecked](Self::push_unchecked), but returns a
+    /// mutable reference to the inserted element.
+    ///
+    /// # Example
+    /// ```
+    /// use tiny_vec::TinyVec;
+    ///
+    /// let mut vec = TinyVec::<i32, 10>::with_capacity(10);
+    ///
+    /// // We've allocated a TinyVec with an initial capacity of 10.
+    /// // We can skip the bounds checking, since there will be room
+    /// // for all the elements on the iterator
+    /// for n in 0..10 {
+    ///     let mut val = unsafe { vec.push_mut_unchecked(n) };
+    ///     *val *= 2;
+    /// }
+    /// assert_eq!(vec.as_slice(), &[0, 2, 4, 6, 8, 10, 12, 14, 16, 18])
+    /// ```
+    #[must_use = "If the reference is not needed, use push_unchecked instead"]
+    pub unsafe fn push_mut_unchecked(&mut self, elem: T) -> &mut T {
         unsafe {
             let dst = self.as_mut_ptr().add(self.len.get());
             dst.write(elem);
+            self.len.add(1);
+            dst.as_mut_unchecked()
         }
-        self.len.add(1);
     }
 
     /// Try to push an element inside the vector, only if
@@ -911,9 +958,14 @@ impl<T, const N: usize> TinyVec<T, N> {
     /// assert_eq!(vec.push_within_capacity(6), Err(6));
     /// ```
     pub fn push_within_capacity(&mut self, val: T) -> Result<(),T> {
+        self.push_mut_within_capacity(val).map(|_| {})
+    }
+    /// Same as [push_within_capacity](Self::push_within_capacity), but
+    /// returns a reference to the element on success
+    #[must_use = "If the reference is not needed, use push_within_capacity instead"]
+    pub fn push_mut_within_capacity(&mut self, val: T) -> Result<&mut T,T> {
         if self.len.get() < self.capacity() {
-            unsafe { self.push_unchecked(val); }
-            Ok(())
+            Ok(unsafe { self.push_mut_unchecked(val) })
         } else {
             Err(val)
         }
