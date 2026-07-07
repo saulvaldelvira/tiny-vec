@@ -104,7 +104,7 @@ capacity.
 //! space when moved to the heap
 
 #![allow(incomplete_features)]
-#![cfg_attr(feature = "use-nightly-features", feature(min_specialization, slice_swap_unchecked, generic_const_exprs))]
+#![cfg_attr(feature = "use-nightly-features", feature(specialization, slice_swap_unchecked, generic_const_exprs))]
 #![cfg_attr(feature = "use-nightly-features", feature(extend_one, extend_one_unchecked))]
 #![cfg_attr(feature = "use-nightly-features", feature(iter_advance_by))]
 #![cfg_attr(feature = "use-nightly-features", feature(can_vector, write_all_vectored))]
